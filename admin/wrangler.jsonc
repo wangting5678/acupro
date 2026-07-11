@@ -1,11 +1,9 @@
 {
-  "name": "acupro-uk",
+  "name": "acupro-admin",
   "compatibility_date": "2025-05-15",
-  "main": "worker/index.ts",
-  "assets": {
-    "directory": "./dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+  "main": "index.ts",
+  "vars": {
+    "ADMIN_PASSWORD": "acupro2026"
   },
   "d1_databases": [
     {

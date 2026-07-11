@@ -31,6 +31,9 @@ export function Booking() {
   const [date, setDate] = useState<Date | null>(null);
   const [time, setTime] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
 
   const cats = servicesByCategory();
   const serviceLocations = useMemo(
@@ -48,6 +51,38 @@ export function Booking() {
 
   const go = (n: number) => setStep(n);
 
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!service || !date || !time) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/book", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          service_id: service.id,
+          staff_id: staffId,
+          location_id: locationId,
+          date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+          time,
+          duration_min: service.duration_min,
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+        }),
+      });
+      const data = (await res.json()) as any;
+      if (!res.ok) throw new Error(data.error || "Booking failed");
+      setDone(true);
+    } catch (err: any) {
+      setError(err?.message ?? "Something went wrong");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (done) {
     return (
       <section className="section">
@@ -62,7 +97,7 @@ export function Booking() {
               confirm by email &amp; WhatsApp shortly.
             </p>
             <p className="muted">
-              (Draft preview — this does not yet write to the live booking system.)
+              A member of our team will confirm shortly. Reference kept on file.
             </p>
             <Link to="/" className="btn btn-primary" style={{ marginTop: 8 }}>Back to home</Link>
           </div>
@@ -196,17 +231,28 @@ export function Booking() {
 
             {/* Step 3: Details */}
             {step === 3 && (
-              <form onSubmit={(e) => { e.preventDefault(); setDone(true); }}>
+              <form onSubmit={submit}>
                 <div className="notice">Almost done — enter your details to request this appointment.</div>
-                <div className="field"><label>Full name</label><input required placeholder="Jane Smith" /></div>
+                <div className="field"><label>Full name</label>
+                  <input required placeholder="Jane Smith" value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
                 <div className="grid grid-2">
-                  <div className="field"><label>Email</label><input type="email" required placeholder="jane@email.com" /></div>
-                  <div className="field"><label>Phone</label><input required placeholder="+44 ..." /></div>
+                  <div className="field"><label>Email</label>
+                    <input type="email" required placeholder="jane@email.com" value={form.email}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+                  <div className="field"><label>Phone</label>
+                    <input required placeholder="+44 ..." value={form.phone}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
                 </div>
-                <div className="field"><label>Notes (optional)</label><textarea rows={3} placeholder="Anything we should know?" /></div>
+                <div className="field"><label>Notes (optional)</label>
+                  <textarea rows={3} placeholder="Anything we should know?" value={form.notes}
+                    onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
+                {error && <div className="notice" style={{ borderColor: "var(--terra)", background: "#fbeee7", color: "var(--terra)" }}>{error}</div>}
                 <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
                   <button type="button" className="btn btn-ghost" onClick={() => go(2)}>← Back</button>
-                  <button type="submit" className="btn btn-primary">Confirm booking →</button>
+                  <button type="submit" className="btn btn-primary" disabled={submitting}>
+                    {submitting ? "Booking…" : "Confirm booking →"}
+                  </button>
                 </div>
               </form>
             )}
