@@ -1,0 +1,32 @@
+---
+import Base from "../layouts/Base.astro";
+import { servicesByCategory } from "../data";
+import { getSeo } from "../seo";
+const cats = servicesByCategory();
+const seo = getSeo("/pricing", "Pricing", "Acupuncture, herbal medicine, massage and wellness treatment prices at AcuPro Clinic London.");
+---
+<Base title={seo.title} description={seo.description} canonicalPath="/pricing">
+  <section class="section">
+    <div class="container">
+      <div class="center" style="margin-bottom:44px">
+        <div class="eyebrow">Treatments &amp; pricing</div>
+        <h1>Pricing</h1>
+        <p class="lead center">Transparent pricing across all our treatments. Follow-ups and enquiries available.</p>
+      </div>
+      {cats.map((cat) => (
+        <div class="svc-cat">
+          <h3>{cat.name}</h3>
+          <div class="svc-list">
+            {cat.items.map((s) => (
+              <div class="svc-row">
+                <div class="meta"><span class="name">{s.title}</span><span class="dur">{s.duration_min} min</span></div>
+                <div class="price">{s.price > 0 ? `£${s.price}` : <small>Enquire</small>}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div class="center" style="margin-top:20px"><a href="/book/" class="btn btn-primary">Book a treatment →</a></div>
+    </div>
+  </section>
+</Base>

@@ -1,0 +1,9 @@
+# PREVIEW MODE — this workers.dev domain must NOT be indexed.
+# ⚠️ AT GO-LIVE (on acuproclinic.co.uk): replace with the block below.
+User-agent: *
+Disallow: /
+
+# --- GO-LIVE version (uncomment on the real domain) ---
+# User-agent: *
+# Allow: /
+# Sitemap: https://acuproclinic.co.uk/sitemap.xml

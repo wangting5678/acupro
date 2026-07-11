@@ -1,0 +1,27 @@
+---
+import Base from "../../layouts/Base.astro";
+import { getSeo } from "../../seo";
+import conditionsRaw from "../../../data/conditions.json";
+type Condition = { slug: string; title: string };
+const conditions = (conditionsRaw as Condition[]).filter((c) => c.slug);
+const seo = getSeo("/conditions", "Conditions We Treat", "Acupuncture & TCM treatment for a wide range of conditions at AcuPro Clinic London.");
+---
+<Base title={seo.title} description={seo.description} canonicalPath="/conditions">
+  <section class="section">
+    <div class="container">
+      <div class="center" style="margin-bottom:44px">
+        <div class="eyebrow">What we treat</div>
+        <h1>Conditions we treat</h1>
+        <p class="lead center">Acupuncture and Traditional Chinese Medicine can help with a wide range of conditions.</p>
+      </div>
+      <div class="grid grid-3">
+        {conditions.map((c) => (
+          <a class="card" href={`/conditions/${c.slug}/`} style="text-decoration:none">
+            <h3 style="color:var(--pine-deep)">{c.title}</h3>
+            <span style="color:var(--gold);font-weight:600;font-size:0.9rem">Learn more →</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+</Base>

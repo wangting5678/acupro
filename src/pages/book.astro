@@ -1,0 +1,18 @@
+---
+import Base from "../layouts/Base.astro";
+import Booking from "../components/Booking.tsx";
+import { getSeo } from "../seo";
+const seo = getSeo("/online-booking", "Book an Appointment", "Book your acupuncture or TCM appointment at AcuPro Clinic London — Victoria, City of London, or online.");
+---
+
+<Base title={seo.title} description={seo.description} canonicalPath="/book">
+  <section class="section">
+    <div class="container">
+      <div class="center" style="margin-bottom:30px">
+        <div class="eyebrow">Online booking</div>
+        <h2>Book your appointment</h2>
+      </div>
+      <Booking client:load />
+    </div>
+  </section>
+</Base>

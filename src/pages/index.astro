@@ -1,0 +1,120 @@
+---
+import Base from "../layouts/Base.astro";
+import { servicesByCategory, team, clinics, CONTACT } from "../data";
+import { getSeo } from "../seo";
+
+const cats = servicesByCategory();
+const seo = getSeo("/", "Traditional Chinese Medicine Clinic",
+  "Award-winning acupuncture & Traditional Chinese Medicine in London. Book at our Victoria, City of London clinics or online video consultation.");
+const initials = (name: string) =>
+  name.replace(/^(Dr|Mr|Ms|Mrs|Miss)\.?\s+/i, "").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+---
+
+<Base title={seo.title} description={seo.description} canonicalPath="/">
+  <section class="hero">
+    <div class="container hero-inner">
+      <div>
+        <div class="eyebrow">Traditional Chinese Medicine · London</div>
+        <h1>Balance, restored — the AcuPro way.</h1>
+        <p class="lead">Award-winning acupuncture, herbal medicine and wellness care from experienced TCM practitioners. Trusted by thousands across London.</p>
+        <div class="badges">
+          <span class="badge">✔ 5,500+ patients cared for</span>
+          <span class="badge">✔ Since 2013</span>
+          <span class="badge">✔ 3 ways to visit</span>
+        </div>
+        <div class="hero-cta">
+          <a href="/book/" class="btn btn-primary">Book an appointment →</a>
+          <a href={CONTACT.whatsappUrl} class="btn btn-ghost">Free 15-min enquiry</a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <span class="glyph">道</span>
+        <div class="stat-card"><strong>25,000+</strong><span>appointments delivered at our London clinics</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="trust">
+    <div class="container trust-inner">
+      <div class="trust-item"><strong>2</strong><span>London clinics + online</span></div>
+      <div class="trust-item"><strong>16</strong><span>expert practitioners</span></div>
+      <div class="trust-item"><strong>15+</strong><span>treatments &amp; therapies</span></div>
+      <div class="trust-item"><strong>10 yrs</strong><span>caring for London</span></div>
+    </div>
+  </section>
+
+  <section class="section" id="services">
+    <div class="container">
+      <div class="center" style="margin-bottom:44px">
+        <div class="eyebrow">What we offer</div>
+        <h2>Treatments &amp; pricing</h2>
+        <p class="lead center">From acupuncture and herbal medicine to sports massage and aesthetic wellness — every session tailored to you.</p>
+      </div>
+      <div id="pricing">
+        {cats.map((cat) => (
+          <div class="svc-cat">
+            <h3>{cat.name}</h3>
+            <div class="svc-list">
+              {cat.items.map((s) => (
+                <div class="svc-row">
+                  <div class="meta"><span class="name">{s.title}</span><span class="dur">{s.duration_min} min</span></div>
+                  <div class="price">{s.price > 0 ? `£${s.price}` : <small>Enquire</small>}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div class="center"><a href="/book/" class="btn btn-primary">Book a treatment →</a></div>
+    </div>
+  </section>
+
+  <section class="section" id="team" style="background:#fff;border-block:1px solid var(--line)">
+    <div class="container">
+      <div class="center" style="margin-bottom:44px"><div class="eyebrow">Meet the practitioners</div><h2>Our team</h2></div>
+      <div class="grid grid-3">
+        {team.slice(0, 6).map((m) => (
+          <div class="card team-card">
+            <div class="team-avatar">{initials(m.name)}</div>
+            <h3 style="font-family:var(--font-head)">{m.name}</h3>
+            <div class="role">{m.specialisation || m.type || "TCM Practitioner"}</div>
+            {m.slogan && <p style="margin-top:10px;font-size:0.92rem">{m.slogan}</p>}
+          </div>
+        ))}
+      </div>
+      <div class="center" style="margin-top:30px"><a href="/our-team/" class="btn btn-ghost">Meet the full team →</a></div>
+    </div>
+  </section>
+
+  <section class="section" id="clinics">
+    <div class="container">
+      <div class="center" style="margin-bottom:44px"><div class="eyebrow">Where to find us</div><h2>Our clinics</h2></div>
+      <div class="grid grid-3">
+        {clinics.map((c) => {
+          const online = /video|online/i.test(c.name);
+          return (
+            <div class="card clinic-card">
+              <span class="tag">{online ? "Online" : "In person"}</span>
+              <h3>{c.name}</h3>
+              <p class="addr">{c.address}{c.postcode ? `, ${c.postcode}` : ""}</p>
+              {c.telephone && <p style="margin:0"><a href={`tel:${c.telephone}`} style="color:var(--pine);font-weight:600">{c.telephone}</a></p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="cta-band">
+        <h2>Ready to feel better?</h2>
+        <p class="lead center" style="color:rgba(255,255,255,0.8)">Book online in under two minutes, or send us a message on WhatsApp.</p>
+        <div class="hero-cta" style="justify-content:center;margin-top:18px">
+          <a href="/book/" class="btn btn-gold">Book now →</a>
+          <a href={CONTACT.whatsappUrl} class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,0.4)">WhatsApp us</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>

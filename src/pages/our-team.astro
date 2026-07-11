@@ -1,0 +1,29 @@
+---
+import Base from "../layouts/Base.astro";
+import { team } from "../data";
+import { getSeo } from "../seo";
+const seo = getSeo("/our-team", "Our Team", "Meet the experienced TCM practitioners at AcuPro Clinic London.");
+const initials = (name: string) =>
+  name.replace(/^(Dr|Mr|Ms|Mrs|Miss)\.?\s+/i, "").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+---
+<Base title={seo.title} description={seo.description} canonicalPath="/our-team">
+  <section class="section">
+    <div class="container">
+      <div class="center" style="margin-bottom:44px">
+        <div class="eyebrow">Meet the practitioners</div>
+        <h1>Our team</h1>
+        <p class="lead center">Experienced, qualified practitioners in acupuncture, herbal medicine and wellness care.</p>
+      </div>
+      <div class="grid grid-3">
+        {team.map((m) => (
+          <div class="card team-card">
+            <div class="team-avatar">{initials(m.name)}</div>
+            <h3 style="font-family:var(--font-head)">{m.name}</h3>
+            <div class="role">{m.specialisation || m.type || "TCM Practitioner"}</div>
+            {m.slogan && <p style="margin-top:10px;font-size:0.92rem">{m.slogan}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+</Base>

@@ -1,0 +1,75 @@
+---
+import Base from "../../layouts/Base.astro";
+import { getSeo } from "../../seo";
+import conditionsRaw from "../../../data/conditions.json";
+
+type Condition = { slug: string; title: string; about: string | null; causes: string | null; aftercare: string | null; body: string | null };
+const conditions = conditionsRaw as Condition[];
+
+export async function getStaticPaths() {
+  const list = (conditionsRaw as Condition[]).filter((c) => c.slug);
+  return list.map((c) => ({ params: { slug: c.slug } }));
+}
+
+// Strip Google-Sheets junk + normalise whitespace, keep basic paragraph breaks.
+function clean(html: string | null): string {
+  if (!html) return "";
+  return html
+    .replace(/<span[^>]*data-sheets[^>]*>/gi, "")
+    .replace(/<\/?span[^>]*>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{2,}/g, "\n\n")
+    .trim();
+}
+
+const { slug } = Astro.params;
+const c = conditions.find((x) => x.slug === slug)!;
+const about = clean(c.about || c.body);
+const causes = clean(c.causes);
+const aftercare = clean(c.aftercare);
+const paras = (t: string) => t.split(/\n{2,}|\n/).map((s) => s.trim()).filter(Boolean);
+
+const path = `/conditions/${slug}`;
+const seo = getSeo(path, c.title, `${c.title} at AcuPro Clinic London. Expert acupuncture & Traditional Chinese Medicine treatment. Book online today.`);
+---
+
+<Base title={seo.title} description={seo.description} canonicalPath={path}>
+  <section class="section">
+    <div class="container" style="max-width:820px">
+      <a href="/conditions/" style="color:var(--gold);font-weight:600;font-size:0.9rem">← All conditions</a>
+      <div class="eyebrow" style="margin-top:16px">Condition</div>
+      <h1>{c.title}</h1>
+
+      {about && (
+        <div style="margin-top:20px">
+          {paras(about).map((p) => <p style="font-size:1.05rem">{p}</p>)}
+        </div>
+      )}
+
+      {causes && (
+        <div style="margin-top:30px">
+          <h2>Causes</h2>
+          {paras(causes).map((p) => <p>{p}</p>)}
+        </div>
+      )}
+
+      {aftercare && (
+        <div style="margin-top:30px">
+          <h2>Aftercare advice</h2>
+          {paras(aftercare).map((p) => <p>{p}</p>)}
+        </div>
+      )}
+
+      <div class="cta-band" style="margin-top:44px">
+        <h2>Struggling with {c.title.replace(/^Acupuncture for /i, "")}?</h2>
+        <p class="lead center" style="color:rgba(255,255,255,0.8)">Book an initial assessment with our experienced TCM practitioners.</p>
+        <div class="hero-cta" style="justify-content:center;margin-top:18px">
+          <a href="/book/" class="btn btn-gold">Book an appointment →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>

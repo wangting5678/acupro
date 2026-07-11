@@ -1,0 +1,95 @@
+---
+import "../styles.css";
+import { CONTACT } from "../data";
+
+export interface Props {
+  title: string;
+  description?: string;
+  canonicalPath: string;
+}
+const { title, description = "", canonicalPath } = Astro.props;
+const site = Astro.site?.toString().replace(/\/$/, "") ?? "https://acuproclinic.co.uk";
+const canonical = site + (canonicalPath === "/" ? "" : canonicalPath) + "/";
+
+const localBusiness = {
+  "@context": "https://schema.org",
+  "@type": "MedicalClinic",
+  name: "AcuPro Clinic",
+  description: "Acupuncture & Traditional Chinese Medicine clinic in London.",
+  url: site,
+  telephone: CONTACT.phone,
+  email: CONTACT.email,
+  medicalSpecialty: "Alternative",
+  address: [
+    { "@type": "PostalAddress", streetAddress: "10 Buckingham Palace Rd", addressLocality: "London", postalCode: "SW1W 0QP", addressCountry: "GB" },
+    { "@type": "PostalAddress", streetAddress: "33-34 Bury Street", addressLocality: "London", postalCode: "EC3A 5AR", addressCountry: "GB" },
+  ],
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    {description && <meta property="og:description" content={description} />}
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content="AcuPro Clinic" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script type="application/ld+json" set:html={JSON.stringify(localBusiness)} />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav">
+        <a href="/" class="brand"><span class="brand-mark">针</span> AcuPro Clinic</a>
+        <nav class="nav-links">
+          <a href="/#services">Services</a>
+          <a href="/conditions/">Conditions</a>
+          <a href="/our-team/">Our Team</a>
+          <a href="/pricing/">Pricing</a>
+        </nav>
+        <div class="nav-cta">
+          <span class="region-pill">🇬🇧 UK</span>
+          <a href="/book/" class="btn btn-primary">Book Now</a>
+        </div>
+      </div>
+    </header>
+
+    <main><slot /></main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer-grid">
+          <div>
+            <div class="brand" style="color:#fff;margin-bottom:14px"><span class="brand-mark">针</span> AcuPro Clinic</div>
+            <p style="color:rgba(255,255,255,0.7);max-width:34ch">Award-winning acupuncture &amp; Traditional Chinese Medicine in the heart of London — since 2013.</p>
+          </div>
+          <div>
+            <h4>Contact</h4>
+            <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
+            <a href={CONTACT.whatsappUrl}>WhatsApp {CONTACT.whatsapp}</a>
+            <a href={`tel:${CONTACT.phone}`}>{CONTACT.phone}</a>
+          </div>
+          <div>
+            <h4>Clinics</h4>
+            <a href="/#clinics">London Victoria</a>
+            <a href="/#clinics">City of London</a>
+            <a href="/#clinics">Online Video Consultation</a>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© 2026 AcuPro Clinic. All rights reserved.</span>
+          <span>UK · United Arab Emirates · Global Online</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
