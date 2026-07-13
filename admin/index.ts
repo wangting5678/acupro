@@ -182,6 +182,24 @@ export default {
       const { id } = (await req.json()) as any;
       await env.DB.prepare("UPDATE appointments SET staff_id=NULL WHERE staff_id=?").bind(id).run(); // unassign their bookings
       await env.DB.prepare("DELETE FROM practitioners WHERE id=?").bind(id).run();
+      await env.DB.prepare("DELETE FROM working_hours WHERE practitioner_id=?").bind(id).run();
+      return json({ ok: true });
+    }
+
+    // ---- working hours (weekly shifts, box-selected on the day view) ----
+    if (url.pathname === "/api/hours" && req.method === "GET") {
+      const { results } = await env.DB.prepare("SELECT id,practitioner_id,dow,start_time,end_time FROM working_hours").all();
+      return json({ hours: results });
+    }
+    if (url.pathname === "/api/hours_add" && req.method === "POST") {
+      const { practitioner_id, dow, start, end } = (await req.json()) as any;
+      if (!practitioner_id || !dow || !start || !end) return json({ error: "missing" }, 400);
+      await env.DB.prepare("INSERT INTO working_hours(practitioner_id,dow,start_time,end_time) VALUES(?,?,?,?)").bind(practitioner_id, dow, start, end).run();
+      return json({ ok: true });
+    }
+    if (url.pathname === "/api/hours_del" && req.method === "POST") {
+      const { id } = (await req.json()) as any;
+      await env.DB.prepare("DELETE FROM working_hours WHERE id=?").bind(id).run();
       return json({ ok: true });
     }
 
@@ -238,11 +256,14 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .col.gutter{min-width:64px;flex:0 0 64px;background:#faf6ef}
   .colhead{height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2;font-size:.82rem;font-weight:600;text-align:center;padding:4px}
   .colhead img,.colhead .ph{width:26px;height:26px;border-radius:50%;margin-bottom:2px}
-  .colbody{position:relative;height:660px}
-  .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee}
+  .colbody{position:relative;height:660px;cursor:crosshair}
+  .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.10);border:1px dashed rgba(31,77,67,.4);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;cursor:pointer;overflow:hidden}
+  .whblock span{position:absolute;top:1px;left:4px}
+  .wh-prev{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.2);border:1px solid var(--pine);border-radius:5px;z-index:4;pointer-events:none}
+  .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee;pointer-events:none}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
   .col.drop-hi{background:#eef5f0}
-  .appt{position:absolute;background:#fbe7cf;border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .appt{position:absolute;z-index:1;background:#fbe7cf;border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
   /* roster */
   .rosterbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .prow{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -276,9 +297,12 @@ const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
 const START=9,END=20,HPX=60; // 9am-8pm, 60px/hour
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set();
+let page='bookings',pracList=[],newClin=new Set(),hours=[],sel=null;
 const CLINIC_ALL=['VCT','CITY','ONLINE'];
 function mins(sd){return +sd.slice(11,13)*60 + +sd.slice(14,16)}
+function hmToMin(hm){return +hm.slice(0,2)*60 + +hm.slice(3,5)}
+function minToHm(m){return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+function curDow(){return dayDate.getDay()===0?7:dayDate.getDay()}
 function monday(d){d=new Date(d);const g=(d.getDay()+6)%7;d.setDate(d.getDate()-g);d.setHours(0,0,0,0);return d}
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function esc(s){return (s==null?'':''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -290,7 +314,7 @@ async function api(p,o){const r=await fetch(p,o);let d={};try{d=await r.json()}c
 function loginView(msg){$('#app').innerHTML='<div class="login"><h1>AcuPro Admin</h1><p>Booking management</p><input id="pw" type="password" placeholder="Password" autofocus><button class="btn" style="width:100%;margin-top:12px" onclick="doLogin()">Sign in</button><div style="color:#b0553a;font-size:.85rem;margin-top:8px">'+(msg||'')+'</div></div>';$('#pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()})}
 async function doLogin(){const {ok,data}=await api('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:$('#pw').value})});ok?boot():loginView(data.error||'Login failed')}
 async function boot(){const m=await api('/api/meta');if(!m.ok)return loginView('');meta=m.data;await load()}
-async function load(){const {ok,data}=await api('/api/appointments');if(!ok)return loginView('');appts=data.appointments||[];render()}
+async function load(){const a=await api('/api/appointments');if(!a.ok)return loginView('');appts=a.data.appointments||[];const h=await api('/api/hours');hours=h.ok?(h.data.hours||[]):[];render()}
 
 function navbtn(p,label){return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#1f4d43':'#fff')+';font-weight:600" onclick="'+(p==='roster'?'goRoster':'goBookings')+'()">'+label+'</button>'}
 function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
@@ -324,14 +348,17 @@ function renderDay(){
   // unassigned
   const un=list.filter(a=>!a.staff_id);
   const unHtml='<div class="unassigned" data-pid="" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,\\'\\')"><h5>Unassigned — drag onto a practitioner</h5>'+
-    (un.map(a=>'<span class="uchip" draggable="true" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')">'+a.start_date.slice(11,16)+' '+esc(a.full_name)+cbadge(a.loc_abbr)+'</span>').join('')||'<span style="color:#bbb;font-size:.8rem">none</span>')+'</div>';
+    (un.map(a=>'<span class="uchip" draggable="true" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')">'+a.start_date.slice(11,16)+' '+esc(a.full_name)+cbadge(a.loc_abbr)+'</span>').join('')||'<span style="color:#7a7266;font-size:.82rem">✅ No unassigned bookings right now. &nbsp;📧 Email notifications: up to <b>100/day · 3,000/month</b> (Resend free tier).</span>')+'</div>';
   // gutter
   let gutter='<div class="col gutter"><div class="colhead"></div><div class="colbody">';
   for(let h=START;h<=END;h++){gutter+='<div class="hourlabel" style="top:'+((h-START)*HPX)+'px">'+((h%12)||12)+(h<12?'am':'pm')+'</div>'}
   gutter+='</div></div>';
+  const dow=curDow();
   const body=cols.map(p=>{
     const items=list.filter(a=>String(a.staff_id)===String(p.id));
     let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+((h-START)*HPX)+'px"></div>'}
+    const whs=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&h.dow===dow);
+    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);return '<div class="whblock" style="top:'+top+'px;height:'+hgt+'px" onclick="delHour('+h.id+',event)" title="Working hours '+h.start_time+'-'+h.end_time+' — click to remove"><span>'+h.start_time+'–'+h.end_time+'</span></div>'}).join('');
     const laid=layoutLanes(items);
     const blocks=laid.map(a=>{
       const sm=mins(a.start_date), dur=a.duration_min||60;
@@ -339,9 +366,9 @@ function renderDay(){
       const w=100/a._lanes, left=a._lane*w;
       return '<div class="appt" draggable="true" style="top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px)" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>';
     }).join('');
-    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody">'+lines+blocks+'</div></div>';
+    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" onmousedown="hStart(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1;text-align:right;color:#7a7266;font-size:.8rem;padding-right:12px">Drag empty space → set working hours · drag a booking → move</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
@@ -365,6 +392,25 @@ async function dDrop(e,pid){e.preventDefault();e.currentTarget.classList.remove(
   }
   dragId=null;load();
 }
+
+// box-select working hours (drag on empty column area)
+function snapY(y){let m=START*60+Math.round((y/HPX*60)/15)*15;return Math.max(START*60,Math.min(m,END*60))}
+function hStart(e,pid){
+  if(e.target!==e.currentTarget)return; // only start on empty column body
+  e.preventDefault();
+  const body=e.currentTarget,rect=body.getBoundingClientRect();
+  sel={pid,body,rect,y0:e.clientY-rect.top,y1:e.clientY-rect.top};
+  const pv=document.createElement('div');pv.className='wh-prev';body.appendChild(pv);sel.pv=pv;drawSel();
+  document.addEventListener('mousemove',hMove);document.addEventListener('mouseup',hUp);
+}
+function drawSel(){const a=snapY(Math.min(sel.y0,sel.y1)),b=snapY(Math.max(sel.y0,sel.y1));sel.pv.style.top=((a-START*60)/60*HPX)+'px';sel.pv.style.height=Math.max((b-a)/60*HPX,2)+'px'}
+function hMove(e){if(!sel)return;sel.y1=e.clientY-sel.rect.top;drawSel()}
+async function hUp(){document.removeEventListener('mousemove',hMove);document.removeEventListener('mouseup',hUp);if(!sel)return;
+  const a=snapY(Math.min(sel.y0,sel.y1)),b=snapY(Math.max(sel.y0,sel.y1)),pid=sel.pid;sel=null;
+  if(b-a<30){render();return}
+  await api('/api/hours_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({practitioner_id:pid,dow:curDow(),start:minToHm(a),end:minToHm(b)})});load();
+}
+async function delHour(id,e){if(e)e.stopPropagation();if(!confirm('Remove this working-hours block?'))return;await api('/api/hours_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});load()}
 
 // modal
 function opt(arr,val,label,sel){return arr.map(o=>'<option value="'+o[val]+'"'+(String(o[val])===String(sel)?' selected':'')+'>'+esc(o[label])+'</option>').join('')}
