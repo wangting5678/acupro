@@ -3,10 +3,53 @@
 export interface Env {
   DB: D1Database;
   ADMIN_PASSWORD: string;
+  RESEND_API_KEY?: string;
+  MAIL_FROM?: string;
 }
 
 const json = (d: unknown, s = 200, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(d), { status: s, headers: { "content-type": "application/json", ...headers } });
+
+const CLINIC_INFO: Record<number, { name: string; addr: string; phone: string }> = {
+  3: { name: "London Victoria", addr: "10 Buckingham Palace Rd, London, SW1W 0QP", phone: "07521 808882" },
+  11: { name: "City of London", addr: "33-34 Bury St, London, EC3A 5AR", phone: "07521 808882" },
+  4: { name: "Online Video Consultation", addr: "Online", phone: "+44 (0)20 3239 7888" },
+};
+async function sendMail(env: Env, to: string, subject: string, html: string) {
+  if (!env.RESEND_API_KEY || !to) return;
+  const from = env.MAIL_FROM || "AcuPro Clinic <onboarding@resend.dev>";
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: "Bearer " + env.RESEND_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ from, to, subject, html }),
+    });
+  } catch { /* ignore */ }
+}
+// Notify patient + assigned practitioner about a booking (new or changed).
+async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "updated") {
+  try {
+    const r = await env.DB.prepare(
+      `SELECT c.full_name, c.email AS pemail, s.title AS service, a.location_id, a.start_date, ca.notes,
+              p.email AS demail
+       FROM appointments a
+       JOIN customer_appointments ca ON ca.appointment_id=a.id
+       JOIN customers c ON c.id=ca.customer_id
+       LEFT JOIN services s ON s.id=a.service_id
+       LEFT JOIN practitioners p ON p.id=a.staff_id
+       WHERE a.id=? LIMIT 1`,
+    ).bind(appointmentId).first<any>();
+    if (!r) return;
+    const clinic = CLINIC_INFO[r.location_id] || { name: "AcuPro Clinic", addr: "", phone: "" };
+    const date = (r.start_date || "").slice(0, 10), time = (r.start_date || "").slice(11, 16);
+    const verb = kind === "new" ? "confirmed" : "updated";
+    const pHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Dear ${r.full_name},</p><p>Your AcuPro Clinic appointment has been ${verb}:</p><p><b>${r.service || "Appointment"}</b></p><p><b>Time:</b> ${date} @ ${time}</p><p><b>Location:</b> ${clinic.name}<br>${clinic.addr}<br>${clinic.phone}</p><p>To change or cancel, reply to this email.</p><p>Thank you for choosing AcuPro Clinic.</p></div>`;
+    const dHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Hello.</p><p>Booking ${kind === "new" ? "added" : "updated"}.</p><p><b>Client:</b> ${r.full_name}<br><b>Service:</b> ${r.service || ""}<br><b>Date:</b> ${date}<br><b>Time:</b> ${time}<br><b>Location:</b> ${clinic.addr}</p></div>`;
+    const jobs = [sendMail(env, r.pemail, `Your AcuPro appointment ${verb}`, pHtml)];
+    if (r.demail) jobs.push(sendMail(env, r.demail, `Booking ${kind} — ${r.full_name}`, dHtml));
+    await Promise.all(jobs);
+  } catch { /* ignore */ }
+}
 
 async function sessionToken(pw: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw + "::acupro-admin-session"));
@@ -22,7 +65,7 @@ async function isAuthed(req: Request, env: Env): Promise<boolean> {
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
 
     if (url.pathname === "/api/login" && req.method === "POST") {
@@ -100,6 +143,7 @@ export default {
       const cust = await env.DB.prepare("INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id").bind(full_name, phone ?? "", email ?? "").first<{ id: number }>();
       const appt = await env.DB.prepare("INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date) VALUES(?,?,?,?,?) RETURNING id").bind(location_id ?? null, staff_id || null, service_id ?? null, start_date, end).first<{ id: number }>();
       await env.DB.prepare("INSERT INTO customer_appointments(customer_id,appointment_id,notes) VALUES(?,?,?)").bind(cust!.id, appt!.id, notes ?? "").run();
+      ctx.waitUntil(notifyBooking(env, appt!.id, "new"));
       return json({ ok: true });
     }
 
@@ -114,23 +158,24 @@ export default {
         end = new Date(t.getTime() + (svc?.duration_min ?? 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
       }
       await env.DB.prepare("UPDATE appointments SET staff_id=?, start_date=?, end_date=? WHERE id=?").bind(staff_id || null, start_date, end, appointment_id).run();
+      ctx.waitUntil(notifyBooking(env, appointment_id, "updated"));
       return json({ ok: true });
     }
 
     // ---- practitioner roster CRUD ----
     if (url.pathname === "/api/prac" && req.method === "GET") {
-      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,position FROM practitioners ORDER BY position, id").all();
+      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,email,position FROM practitioners ORDER BY position, id").all();
       return json({ practitioners: results });
     }
     if (url.pathname === "/api/prac_save" && req.method === "POST") {
-      const { id, name, clinics, photo } = (await req.json()) as any;
+      const { id, name, clinics, photo, email } = (await req.json()) as any;
       if (!name) return json({ error: "name required" }, 400);
       if (id) {
-        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, id).run();
+        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=?, email=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, email ?? "", id).run();
         return json({ ok: true, id });
       }
       const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid, COALESCE(MAX(position),0)+1 AS npos FROM practitioners").first<{ nid: number; npos: number }>();
-      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,position) VALUES(?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", mx!.npos).run();
+      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,email,position) VALUES(?,?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", email ?? "", mx!.npos).run();
       return json({ ok: true, id: mx!.nid });
     }
     if (url.pathname === "/api/prac_delete" && req.method === "POST") {
@@ -202,7 +247,8 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .rosterbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .prow{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
   .prow:last-child{border-bottom:0}
-  .pname{flex:1;max-width:280px}
+  .pname{flex:1;max-width:220px}
+  .pemail{flex:1;max-width:240px}
   .clset{display:flex;gap:6px}
   .clchip{border:1px solid var(--line);background:#fff;color:#7a7266;border-radius:999px;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer}
   .addrow{display:flex;align-items:center;gap:12px;margin-top:14px;background:#fff;border:1px dashed var(--gold);border-radius:12px;padding:12px 14px}
@@ -363,17 +409,18 @@ function clchip(ab,on,cb){return '<button class="clchip'+(on?' on':'')+'" style=
 function renderRoster(){
   const rows=pracList.map(p=>{const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));
     const chips=CLINIC_ALL.map(ab=>clchip(ab,set.has(ab),'toggleClinic('+p.id+',\\''+ab+'\\')')).join('');
-    return '<div class="prow">'+avatar(p.photo,p.name)+'<input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><div class="clset">'+chips+'</div><button class="btn danger" onclick="delPrac('+p.id+')">Delete</button></div>';
+    return '<div class="prow">'+avatar(p.photo,p.name)+'<input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><input class="pemail" value="'+esc(p.email||'')+'" placeholder="email for notifications" onchange="setEmail('+p.id+',this.value)"><div class="clset">'+chips+'</div><button class="btn danger" onclick="delPrac('+p.id+')">Delete</button></div>';
   }).join('');
   const nc=CLINIC_ALL.map(ab=>clchip(ab,newClin.has(ab),'toggleNewClin(\\''+ab+'\\')')).join('');
-  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Practitioners</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Click a clinic chip to toggle where a practitioner works. This roster drives the day-view columns and auto-assignment.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input id="np_name" placeholder="New practitioner name"><div class="clset">'+nc+'</div><button class="btn" onclick="addPrac()">+ Add</button></div>');
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Practitioners</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Click a clinic chip to toggle where a practitioner works. Email is used for booking notifications. This roster drives the day-view columns and auto-assignment.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input id="np_name" placeholder="New practitioner name"><input id="np_email" placeholder="email"><div class="clset">'+nc+'</div><button class="btn" onclick="addPrac()">+ Add</button></div>');
 }
 function toggleNewClin(ab){newClin.has(ab)?newClin.delete(ab):newClin.add(ab);renderRoster()}
 async function saveP(p){await api('/api/prac_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)})}
-async function toggleClinic(id,ab){const p=pracList.find(x=>x.id===id);const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));set.has(ab)?set.delete(ab):set.add(ab);p.clinics=CLINIC_ALL.filter(a=>set.has(a)).join(',');renderRoster();await saveP({id:p.id,name:p.name,clinics:p.clinics,photo:p.photo})}
-async function renamePrac(id,name){const p=pracList.find(x=>x.id===id);p.name=name;await saveP({id:p.id,name:name,clinics:p.clinics,photo:p.photo})}
+async function toggleClinic(id,ab){const p=pracList.find(x=>x.id===id);const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));set.has(ab)?set.delete(ab):set.add(ab);p.clinics=CLINIC_ALL.filter(a=>set.has(a)).join(',');renderRoster();await saveP({id:p.id,name:p.name,clinics:p.clinics,photo:p.photo,email:p.email})}
+async function renamePrac(id,name){const p=pracList.find(x=>x.id===id);p.name=name;await saveP({id:p.id,name:name,clinics:p.clinics,photo:p.photo,email:p.email})}
+async function setEmail(id,email){const p=pracList.find(x=>x.id===id);p.email=email;await saveP({id:p.id,name:p.name,clinics:p.clinics,photo:p.photo,email:email})}
 async function delPrac(id){if(!confirm('Delete this practitioner? Their bookings become Unassigned.'))return;await api('/api/prac_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadPrac()}
-async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(',')});newClin=new Set();loadPrac()}
+async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,email:$('#np_email').value.trim(),clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(',')});newClin=new Set();loadPrac()}
 async function logout(){await fetch('/api/logout');loginView('')}
 boot();
 </script></body></html>`;

@@ -3,6 +3,8 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  RESEND_API_KEY?: string;
+  MAIL_FROM?: string;
 }
 
 const json = (data: unknown, status = 200) =>
@@ -11,8 +13,50 @@ const json = (data: unknown, status = 200) =>
     headers: { "content-type": "application/json" },
   });
 
+const CLINIC_INFO: Record<number, { name: string; addr: string; phone: string }> = {
+  3: { name: "London Victoria", addr: "10 Buckingham Palace Rd, London, SW1W 0QP", phone: "07521 808882" },
+  11: { name: "City of London", addr: "33-34 Bury St, London, EC3A 5AR", phone: "07521 808882" },
+  4: { name: "Online Video Consultation", addr: "Online", phone: "+44 (0)20 3239 7888" },
+};
+
+async function sendMail(env: Env, to: string, subject: string, html: string) {
+  if (!env.RESEND_API_KEY || !to) return; // no-op until an API key is configured
+  const from = env.MAIL_FROM || "AcuPro Clinic <onboarding@resend.dev>";
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: "Bearer " + env.RESEND_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ from, to, subject, html }),
+    });
+  } catch { /* ignore */ }
+}
+
+function patientEmailHtml(o: { name: string; service: string; date: string; time: string; clinic: { name: string; addr: string; phone: string } }) {
+  return `<div style="font-family:Arial,sans-serif;color:#23201c;font-size:15px;line-height:1.6">
+    <p>Dear ${o.name},</p>
+    <p>Thank you for booking with AcuPro Clinic. Here are your appointment details:</p>
+    <p><b>${o.service}</b></p>
+    <p><b>Time:</b> ${o.date} @ ${o.time}</p>
+    <p><b>Location:</b> ${o.clinic.name}<br>${o.clinic.addr}<br>${o.clinic.phone}</p>
+    <p><b>Reschedule:</b> <a href="https://acuproclinic.co.uk/online-booking">book again</a> and add a note "replace the one on date …", or reply to this email and we'll adjust manually.</p>
+    <p><b>Cancellation:</b> free up to 24 hours before — just reply "CANCEL" to this email.</p>
+    <p>Thank you for choosing AcuPro Clinic.</p>
+    <hr><p style="font-size:13px;color:#777">Head Office: +44 (0)20 3239 7888<br>City Branch: 33-34 Bury St, London, EC3A 5AR<br>Victoria Branch: 10 Buckingham Palace Rd, London, SW1W 0QP</p>
+  </div>`;
+}
+function doctorEmailHtml(o: { name: string; service: string; note: string; date: string; time: string; addr: string }) {
+  return `<div style="font-family:Arial,sans-serif;color:#23201c;font-size:15px;line-height:1.6">
+    <p>Hello.</p><p>You have a new booking.</p>
+    <p><b>Client name:</b> ${o.name}</p>
+    <p><b>Service:</b> ${o.service}</p>
+    ${o.note ? `<p><b>Note:</b> ${o.note}</p>` : ""}
+    <p><b>Date:</b> ${o.date}<br><b>Time:</b> ${o.time}</p>
+    <p><b>Location:</b> ${o.addr}</p>
+  </div>`;
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/book" && request.method === "POST") {
@@ -59,6 +103,23 @@ export default {
         await env.DB.prepare(
           "INSERT INTO customer_appointments(customer_id,appointment_id,status,notes) VALUES(?,?,?,?)",
         ).bind(cust!.id, appt!.id, "pending", notes).run();
+
+        // Send confirmation (patient) + notification (assigned practitioner) in the background.
+        ctx.waitUntil((async () => {
+          try {
+            const svc = await env.DB.prepare("SELECT title FROM services WHERE id=?").bind(service_id).first<{ title: string }>();
+            const clinic = CLINIC_INFO[location_id as number] || { name: "AcuPro Clinic", addr: "", phone: "" };
+            const serviceTitle = svc?.title || "Appointment";
+            const jobs: Promise<void>[] = [
+              sendMail(env, email, "Your AcuPro Clinic appointment", patientEmailHtml({ name, service: serviceTitle, date, time, clinic })),
+            ];
+            if (assigned) {
+              const d = await env.DB.prepare("SELECT email FROM practitioners WHERE id=?").bind(assigned).first<{ email: string }>();
+              if (d?.email) jobs.push(sendMail(env, d.email, "New booking — " + name, doctorEmailHtml({ name, service: serviceTitle, note: notes, date, time, addr: clinic.addr })));
+            }
+            await Promise.all(jobs);
+          } catch { /* ignore */ }
+        })());
 
         return json({ ok: true, appointment_id: appt!.id });
       } catch (e: any) {
