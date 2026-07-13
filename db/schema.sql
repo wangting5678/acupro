@@ -11,7 +11,8 @@ DROP TABLE IF EXISTS locations;
 CREATE TABLE locations (
   id      INTEGER PRIMARY KEY,
   name    TEXT NOT NULL,
-  info    TEXT
+  info    TEXT,
+  abbr    TEXT              -- clinic short code shown as a badge (VCT / CITY / ONLINE)
 );
 
 CREATE TABLE services (
@@ -24,7 +25,8 @@ CREATE TABLE services (
 
 CREATE TABLE staff (
   id    INTEGER PRIMARY KEY,
-  name  TEXT NOT NULL
+  name  TEXT NOT NULL,
+  photo TEXT               -- practitioner photo path, e.g. /staff/3.jpg
 );
 
 CREATE TABLE staff_services (
