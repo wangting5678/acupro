@@ -147,18 +147,38 @@ export default {
       return json({ ok: true });
     }
 
-    // move a booking: change practitioner AND time (drag-drop)
+    // move a booking: change practitioner AND time (drag-drop); location follows the practitioner
     if (url.pathname === "/api/move" && req.method === "POST") {
       const { appointment_id, staff_id, start_date } = (await req.json()) as any;
+      const a = await env.DB.prepare("SELECT service_id, location_id FROM appointments WHERE id=?").bind(appointment_id).first<{ service_id: number; location_id: number }>();
       let end = start_date;
-      const a = await env.DB.prepare("SELECT service_id FROM appointments WHERE id=?").bind(appointment_id).first<{ service_id: number }>();
       if (a?.service_id && start_date) {
         const svc = await env.DB.prepare("SELECT duration_min FROM services WHERE id=?").bind(a.service_id).first<{ duration_min: number }>();
         const t = new Date(start_date.replace(" ", "T") + "Z");
         end = new Date(t.getTime() + (svc?.duration_min ?? 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
       }
-      await env.DB.prepare("UPDATE appointments SET staff_id=?, start_date=?, end_date=? WHERE id=?").bind(staff_id || null, start_date, end, appointment_id).run();
+      // location follows the assigned practitioner's clinics
+      const ABBR2LOC: Record<string, number> = { VCT: 3, CITY: 11, ONLINE: 4 };
+      let newLoc = a?.location_id ?? null;
+      if (staff_id) {
+        const p = await env.DB.prepare("SELECT clinics FROM practitioners WHERE id=?").bind(staff_id).first<{ clinics: string }>();
+        const clinics = (p?.clinics || "").split(",").map((s) => s.trim()).filter(Boolean);
+        const curAbbr = Object.keys(ABBR2LOC).find((k) => ABBR2LOC[k] === a?.location_id);
+        if (clinics.length && (!curAbbr || !clinics.includes(curAbbr))) newLoc = ABBR2LOC[clinics[0]];
+      }
+      await env.DB.prepare("UPDATE appointments SET staff_id=?, start_date=?, end_date=?, location_id=? WHERE id=?").bind(staff_id || null, start_date, end, newLoc, appointment_id).run();
       ctx.waitUntil(notifyBooking(env, appointment_id, "updated"));
+      return json({ ok: true });
+    }
+
+    // reorder practitioner columns
+    if (url.pathname === "/api/prac_order" && req.method === "POST") {
+      const { ids } = (await req.json()) as any;
+      if (Array.isArray(ids)) {
+        for (let i = 0; i < ids.length; i++) {
+          await env.DB.prepare("UPDATE practitioners SET position=? WHERE id=?").bind(i + 1, ids[i]).run();
+        }
+      }
       return json({ ok: true });
     }
 
@@ -254,7 +274,8 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .col{min-width:150px;flex:1 0 150px;border-right:1px solid var(--line);position:relative}
   .col:last-child{border-right:0}
   .col.gutter{min-width:64px;flex:0 0 64px;background:#faf6ef}
-  .colhead{height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2;font-size:.82rem;font-weight:600;text-align:center;padding:4px}
+  .colhead{height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2;font-size:.82rem;font-weight:600;text-align:center;padding:4px;cursor:grab}
+  .colhead:active{cursor:grabbing}
   .colhead img,.colhead .ph{width:26px;height:26px;border-radius:50%;margin-bottom:2px}
   .colbody{position:relative;height:660px;cursor:crosshair}
   .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.10);border:1px dashed rgba(31,77,67,.4);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;cursor:pointer;overflow:hidden}
@@ -263,7 +284,8 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee;pointer-events:none}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
   .col.drop-hi{background:#eef5f0}
-  .appt{position:absolute;z-index:1;background:#fbe7cf;border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .appt{position:absolute;z-index:1;background:rgba(249,222,190,.72);border:1px solid rgba(201,138,63,.55);border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);backdrop-filter:saturate(1.1)}
+  .appt:hover{background:rgba(249,222,190,.92)}
   /* roster */
   .rosterbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .prow{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -307,7 +329,7 @@ function monday(d){d=new Date(d);const g=(d.getDay()+6)%7;d.setDate(d.getDate()-
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function esc(s){return (s==null?'':''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function initials(n){n=(''+(n||'')).replace(/\\(.*\\)/,'').trim();return n.split(/\\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase()}
-function avatar(photo,name,cls){return photo?'<img class="av '+(cls||'')+'" src="'+UK+photo+'" alt="">':'<span class="av ph '+(cls||'')+'">'+initials(name)+'</span>'}
+function avatar(photo,name,cls){return photo?'<img draggable="false" class="av '+(cls||'')+'" src="'+UK+photo+'" alt="">':'<span class="av ph '+(cls||'')+'">'+initials(name)+'</span>'}
 function cbadge(ab){if(!ab)return '';return '<span class="cbadge" style="background:'+(CLINIC_COLOR[ab]||'#7a7266')+'">'+esc(ab)+'</span>'}
 async function api(p,o){const r=await fetch(p,o);let d={};try{d=await r.json()}catch(e){};return{ok:r.ok,data:d}}
 
@@ -366,7 +388,7 @@ function renderDay(){
       const w=100/a._lanes, left=a._lane*w;
       return '<div class="appt" draggable="true" style="top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px)" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>';
     }).join('');
-    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" onmousedown="hStart(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
+    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" onmousedown="hStart(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
   $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1;text-align:right;color:#7a7266;font-size:.8rem;padding-right:12px">Drag empty space → set working hours · drag a booking → move</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
 }
@@ -374,9 +396,15 @@ function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
 
 // drag-drop
-let dragId=null;
+let dragId=null,colDragId=null;
 function dStart(e,id){dragId=id;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move'}
 function dEnd(e){e.target.classList.remove('dragging')}
+function colDragStart(e,pid){colDragId=pid;e.dataTransfer.effectAllowed='move';e.stopPropagation()}
+async function colDrop(e,targetPid){e.preventDefault();e.stopPropagation();const src=colDragId;colDragId=null;if(src==null||src===targetPid)return;
+  const arr=meta.practitioners.slice();const from=arr.findIndex(p=>p.id===src),to=arr.findIndex(p=>p.id===targetPid);if(from<0||to<0)return;
+  const [m]=arr.splice(from,1);arr.splice(to,0,m);meta.practitioners=arr;render();
+  await api('/api/prac_order',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ids:arr.map(p=>p.id)})});
+}
 function dOver(e){e.preventDefault();e.currentTarget.classList.add('drop-hi')}
 function dLeave(e){e.currentTarget.classList.remove('drop-hi')}
 function layoutLanes(items){const arr=items.slice().sort((a,b)=>a.start_date.localeCompare(b.start_date));const laneEnd=[];arr.forEach(a=>{const s=mins(a.start_date),e=s+(a.duration_min||60);let ln=laneEnd.findIndex(x=>x<=s);if(ln<0){ln=laneEnd.length;laneEnd.push(e)}else laneEnd[ln]=e;a._lane=ln});const total=Math.max(laneEnd.length,1);arr.forEach(a=>a._lanes=total);return arr}
