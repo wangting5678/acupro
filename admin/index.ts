@@ -103,6 +103,43 @@ export default {
       return json({ ok: true });
     }
 
+    // move a booking: change practitioner AND time (drag-drop)
+    if (url.pathname === "/api/move" && req.method === "POST") {
+      const { appointment_id, staff_id, start_date } = (await req.json()) as any;
+      let end = start_date;
+      const a = await env.DB.prepare("SELECT service_id FROM appointments WHERE id=?").bind(appointment_id).first<{ service_id: number }>();
+      if (a?.service_id && start_date) {
+        const svc = await env.DB.prepare("SELECT duration_min FROM services WHERE id=?").bind(a.service_id).first<{ duration_min: number }>();
+        const t = new Date(start_date.replace(" ", "T") + "Z");
+        end = new Date(t.getTime() + (svc?.duration_min ?? 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
+      }
+      await env.DB.prepare("UPDATE appointments SET staff_id=?, start_date=?, end_date=? WHERE id=?").bind(staff_id || null, start_date, end, appointment_id).run();
+      return json({ ok: true });
+    }
+
+    // ---- practitioner roster CRUD ----
+    if (url.pathname === "/api/prac" && req.method === "GET") {
+      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,position FROM practitioners ORDER BY position, id").all();
+      return json({ practitioners: results });
+    }
+    if (url.pathname === "/api/prac_save" && req.method === "POST") {
+      const { id, name, clinics, photo } = (await req.json()) as any;
+      if (!name) return json({ error: "name required" }, 400);
+      if (id) {
+        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, id).run();
+        return json({ ok: true, id });
+      }
+      const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid, COALESCE(MAX(position),0)+1 AS npos FROM practitioners").first<{ nid: number; npos: number }>();
+      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,position) VALUES(?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", mx!.npos).run();
+      return json({ ok: true, id: mx!.nid });
+    }
+    if (url.pathname === "/api/prac_delete" && req.method === "POST") {
+      const { id } = (await req.json()) as any;
+      await env.DB.prepare("UPDATE appointments SET staff_id=NULL WHERE staff_id=?").bind(id).run(); // unassign their bookings
+      await env.DB.prepare("DELETE FROM practitioners WHERE id=?").bind(id).run();
+      return json({ ok: true });
+    }
+
     // cancel = delete (no status)
     if (url.pathname === "/api/delete" && req.method === "POST") {
       const { ca_id, appointment_id } = (await req.json()) as any;
@@ -160,7 +197,16 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
   .col.drop-hi{background:#eef5f0}
-  .appt{position:absolute;left:4px;right:4px;background:#fbe7cf;border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .appt{position:absolute;background:#fbe7cf;border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  /* roster */
+  .rosterbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .prow{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .prow:last-child{border-bottom:0}
+  .pname{flex:1;max-width:280px}
+  .clset{display:flex;gap:6px}
+  .clchip{border:1px solid var(--line);background:#fff;color:#7a7266;border-radius:999px;padding:5px 12px;font-size:.78rem;font-weight:700;cursor:pointer}
+  .addrow{display:flex;align-items:center;gap:12px;margin-top:14px;background:#fff;border:1px dashed var(--gold);border-radius:12px;padding:12px 14px}
+  .addrow input{flex:1;max-width:280px}
   .appt:hover{filter:brightness(.97)}
   .appt .t{font-weight:700}.appt .n{color:#4a463f}
   .appt.dragging{opacity:.4}
@@ -184,6 +230,9 @@ const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
 const START=9,END=20,HPX=60; // 9am-8pm, 60px/hour
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
+let page='bookings',pracList=[],newClin=new Set();
+const CLINIC_ALL=['VCT','CITY','ONLINE'];
+function mins(sd){return +sd.slice(11,13)*60 + +sd.slice(14,16)}
 function monday(d){d=new Date(d);const g=(d.getDay()+6)%7;d.setDate(d.getDate()-g);d.setHours(0,0,0,0);return d}
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function esc(s){return (s==null?'':''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -197,8 +246,11 @@ async function doLogin(){const {ok,data}=await api('/api/login',{method:'POST',h
 async function boot(){const m=await api('/api/meta');if(!m.ok)return loginView('');meta=m.data;await load()}
 async function load(){const {ok,data}=await api('/api/appointments');if(!ok)return loginView('');appts=data.appointments||[];render()}
 
-function shell(inner){return '<header><h1>📅 AcuPro Bookings</h1><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
-function render(){view==='day'?renderDay():renderWeek()}
+function navbtn(p,label){return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#1f4d43':'#fff')+';font-weight:600" onclick="'+(p==='roster'?'goRoster':'goBookings')+'()">'+label+'</button>'}
+function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
+function render(){if(page==='roster')return renderRoster();view==='day'?renderDay():renderWeek()}
+function goBookings(){page='bookings';render()}
+function goRoster(){page='roster';loadPrac()}
 
 function renderWeek(){
   const days=[...Array(7)].map((_,i)=>{const d=new Date(cursor);d.setDate(d.getDate()+i);return d});
@@ -234,11 +286,12 @@ function renderDay(){
   const body=cols.map(p=>{
     const items=list.filter(a=>String(a.staff_id)===String(p.id));
     let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+((h-START)*HPX)+'px"></div>'}
-    const blocks=items.map(a=>{
-      const sm=+a.start_date.slice(11,13)*60+ +a.start_date.slice(14,16);
-      const dur=a.duration_min||60;
-      const top=(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,26);
-      return '<div class="appt" draggable="true" style="top:'+top+'px;height:'+hgt+'px" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>';
+    const laid=layoutLanes(items);
+    const blocks=laid.map(a=>{
+      const sm=mins(a.start_date), dur=a.duration_min||60;
+      const top=(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,24);
+      const w=100/a._lanes, left=a._lane*w;
+      return '<div class="appt" draggable="true" style="top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px)" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>';
     }).join('');
     return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody">'+lines+blocks+'</div></div>';
   }).join('');
@@ -253,9 +306,17 @@ function dStart(e,id){dragId=id;e.target.classList.add('dragging');e.dataTransfe
 function dEnd(e){e.target.classList.remove('dragging')}
 function dOver(e){e.preventDefault();e.currentTarget.classList.add('drop-hi')}
 function dLeave(e){e.currentTarget.classList.remove('drop-hi')}
+function layoutLanes(items){const arr=items.slice().sort((a,b)=>a.start_date.localeCompare(b.start_date));const laneEnd=[];arr.forEach(a=>{const s=mins(a.start_date),e=s+(a.duration_min||60);let ln=laneEnd.findIndex(x=>x<=s);if(ln<0){ln=laneEnd.length;laneEnd.push(e)}else laneEnd[ln]=e;a._lane=ln});const total=Math.max(laneEnd.length,1);arr.forEach(a=>a._lanes=total);return arr}
 async function dDrop(e,pid){e.preventDefault();e.currentTarget.classList.remove('drop-hi');if(dragId==null)return;
-  const a=appts.find(x=>x.id===dragId);if(a){a.staff_id=pid||null}
-  await api('/api/assign',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:a.appointment_id,staff_id:pid||null})});
+  const a=appts.find(x=>x.id===dragId);if(!a){dragId=null;return}
+  if(pid===''||pid==null){
+    await api('/api/assign',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:a.appointment_id,staff_id:null})});
+  }else{
+    const bodyEl=e.currentTarget.querySelector('.colbody');const rect=bodyEl.getBoundingClientRect();
+    let m=START*60+Math.round(((e.clientY-rect.top)/HPX*60)/15)*15; m=Math.max(START*60,Math.min(m,END*60-15));
+    const sd=ymd(dayDate)+' '+String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+':00';
+    await api('/api/move',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:a.appointment_id,staff_id:pid,start_date:sd})});
+  }
   dragId=null;load();
 }
 
@@ -296,6 +357,23 @@ function openCreate(){const d=view==='day'?ymd(dayDate):ymd(new Date());
 async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_time').value+':00',service_id:+$('#c_service').value,staff_id:$('#c_staff').value?+$('#c_staff').value:null,location_id:$('#c_loc').value?+$('#c_loc').value:null,notes:$('#c_notes').value,full_name:$('#c_name').value,phone:$('#c_phone').value,email:$('#c_email').value};
   if(!body.full_name){alert('Enter customer name');return}
   await api('/api/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});closeM();load()}
+// ---- practitioner roster ----
+async function loadPrac(){const {ok,data}=await api('/api/prac');if(!ok)return loginView('');pracList=data.practitioners||[];renderRoster()}
+function clchip(ab,on,cb){return '<button class="clchip'+(on?' on':'')+'" style="'+(on?'background:'+CLINIC_COLOR[ab]+';color:#fff;border-color:'+CLINIC_COLOR[ab]:'')+'" onclick="'+cb+'">'+ab+'</button>'}
+function renderRoster(){
+  const rows=pracList.map(p=>{const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));
+    const chips=CLINIC_ALL.map(ab=>clchip(ab,set.has(ab),'toggleClinic('+p.id+',\\''+ab+'\\')')).join('');
+    return '<div class="prow">'+avatar(p.photo,p.name)+'<input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><div class="clset">'+chips+'</div><button class="btn danger" onclick="delPrac('+p.id+')">Delete</button></div>';
+  }).join('');
+  const nc=CLINIC_ALL.map(ab=>clchip(ab,newClin.has(ab),'toggleNewClin(\\''+ab+'\\')')).join('');
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Practitioners</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Click a clinic chip to toggle where a practitioner works. This roster drives the day-view columns and auto-assignment.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input id="np_name" placeholder="New practitioner name"><div class="clset">'+nc+'</div><button class="btn" onclick="addPrac()">+ Add</button></div>');
+}
+function toggleNewClin(ab){newClin.has(ab)?newClin.delete(ab):newClin.add(ab);renderRoster()}
+async function saveP(p){await api('/api/prac_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)})}
+async function toggleClinic(id,ab){const p=pracList.find(x=>x.id===id);const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));set.has(ab)?set.delete(ab):set.add(ab);p.clinics=CLINIC_ALL.filter(a=>set.has(a)).join(',');renderRoster();await saveP({id:p.id,name:p.name,clinics:p.clinics,photo:p.photo})}
+async function renamePrac(id,name){const p=pracList.find(x=>x.id===id);p.name=name;await saveP({id:p.id,name:name,clinics:p.clinics,photo:p.photo})}
+async function delPrac(id){if(!confirm('Delete this practitioner? Their bookings become Unassigned.'))return;await api('/api/prac_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadPrac()}
+async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(',')});newClin=new Set();loadPrac()}
 async function logout(){await fetch('/api/logout');loginView('')}
 boot();
 </script></body></html>`;
