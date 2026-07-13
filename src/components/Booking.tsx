@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react";
-import {
-  servicesByCategory, locations, staff, CONTACT, type Service,
-} from "../data";
-import { locationsForService, staffForService, slotsForDate } from "../lib/availability";
+import { servicesByCategory, locations, CONTACT, type Service } from "../data";
+import { slotsForDate, serviceIdsAtLocation } from "../lib/availability";
 
-const STEPS = ["Service", "Location", "Date & time", "Your details"];
-const staffName = (id: number) => staff.find((s) => s.id === id)?.name ?? `Practitioner ${id}`;
+const STEPS = ["Clinic", "Service", "Date & time", "Your details"];
 const locName = (id: number) => locations.find((l) => l.id === id)?.name ?? `Location ${id}`;
 
 function nextDays(n: number): Date[] {
@@ -18,14 +15,17 @@ function nextDays(n: number): Date[] {
   }
   return out;
 }
-const fmtDate = (d: Date) =>
-  d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+const fmtDate = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+const isSameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+const nowHHMM = () => {
+  const n = new Date();
+  return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
+};
 
 export default function Booking() {
   const [step, setStep] = useState(0);
-  const [service, setService] = useState<Service | null>(null);
   const [locationId, setLocationId] = useState<number | null>(null);
-  const [staffId, setStaffId] = useState<number | null>(null);
+  const [service, setService] = useState<Service | null>(null);
   const [date, setDate] = useState<Date | null>(null);
   const [time, setTime] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -33,25 +33,36 @@ export default function Booking() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
 
-  const cats = servicesByCategory();
-  const serviceLocations = useMemo(() => (service ? locationsForService(service.id) : []), [service]);
-  const serviceStaff = useMemo(() => (service ? staffForService(service.id, locationId) : []), [service, locationId]);
-  const slots = useMemo(
-    () => (service && date ? slotsForDate(service, date, { locationId, staffId }) : []),
-    [service, date, locationId, staffId],
-  );
+  const cats = useMemo(() => {
+    const all = servicesByCategory();
+    if (locationId == null) return all;
+    const ids = serviceIdsAtLocation(locationId);
+    const filtered = all.map((c) => ({ ...c, items: c.items.filter((s) => ids.has(s.id)) })).filter((c) => c.items.length);
+    return filtered.length ? filtered : all;
+  }, [locationId]);
+
+  const slots = useMemo(() => {
+    if (!service || !date) return [];
+    let list = slotsForDate(service, date, { locationId });
+    if (isSameDay(date, new Date())) {
+      const now = nowHHMM();
+      list = list.filter((s) => s.time > now); // no past times today
+    }
+    return list;
+  }, [service, date, locationId]);
+
   const go = (n: number) => setStep(n);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!service || !date || !time) return;
+    if (!service || !date || !time || !locationId) return;
     setSubmitting(true); setError(null);
     try {
       const res = await fetch("/api/book", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          service_id: service.id, staff_id: staffId, location_id: locationId,
+          service_id: service.id, location_id: locationId, staff_id: null,
           date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
           time, duration_min: service.duration_min,
           name: form.name, email: form.email, phone: form.phone, notes: form.notes,
@@ -73,10 +84,10 @@ export default function Booking() {
         <div className="tick">✓</div>
         <h2>Booking request received</h2>
         <p>
-          Thank you — we've received your request for <strong>{service?.title}</strong> on{" "}
-          <strong>{date && fmtDate(date)} at {time}</strong>. Our team will confirm by email &amp; WhatsApp shortly.
+          Thank you — we've received your request for <strong>{service?.title}</strong> at{" "}
+          <strong>{locationId && locName(locationId)}</strong> on <strong>{date && fmtDate(date)} at {time}</strong>.
+          Our team will confirm by email &amp; WhatsApp shortly.
         </p>
-        <p className="muted">A member of our team will confirm shortly. Reference kept on file.</p>
         <a href="/" className="btn btn-primary" style={{ marginTop: 8 }}>Back to home</a>
       </div>
     );
@@ -86,23 +97,42 @@ export default function Booking() {
     <>
       <div className="steps">
         {STEPS.map((s, i) => (
-          <div key={s} className={`step ${i === step ? "active" : ""} ${i < step ? "done" : ""}`}>
-            {i < step ? "✓" : i + 1} {s}
-          </div>
+          <div key={s} className={`step ${i === step ? "active" : ""} ${i < step ? "done" : ""}`}>{i < step ? "✓" : i + 1} {s}</div>
         ))}
       </div>
 
       <div className="booking-wrap">
         <div>
+          {/* Step 0: Clinic */}
           {step === 0 && (
             <div>
+              <div className="notice">Choose the clinic you'd like to visit.</div>
+              <div className="pick">
+                {locations.map((l) => {
+                  const online = /video|online|global/i.test(l.name);
+                  return (
+                    <button key={l.id} className={`pick-item ${locationId === l.id ? "sel" : ""}`}
+                      onClick={() => { setLocationId(l.id); setService(null); setDate(null); setTime(null); go(1); }}>
+                      <span className="meta"><span className="name">{l.name}</span><span className="dur">{online ? "Online video consultation" : "In-person clinic"}</span></span>
+                      <span>›</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Step 1: Service */}
+          {step === 1 && locationId && (
+            <div>
+              <div className="notice">Select a treatment at <strong>{locName(locationId)}</strong>.</div>
               {cats.map((cat) => (
                 <div className="svc-cat" key={cat.id}>
                   <h3>{cat.name}</h3>
                   <div className="pick">
                     {cat.items.map((s) => (
                       <button key={s.id} className={`pick-item ${service?.id === s.id ? "sel" : ""}`}
-                        onClick={() => { setService(s); setLocationId(null); setStaffId(null); setDate(null); setTime(null); go(1); }}>
+                        onClick={() => { setService(s); setDate(null); setTime(null); go(2); }}>
                         <span className="meta"><span className="name">{s.title}</span><span className="dur">{s.duration_min} min</span></span>
                         <span className="price">{s.price > 0 ? `£${s.price}` : "Enquire"}</span>
                       </button>
@@ -110,44 +140,17 @@ export default function Booking() {
                   </div>
                 </div>
               ))}
+              <button className="btn btn-ghost" onClick={() => go(0)}>← Back</button>
             </div>
           )}
 
-          {step === 1 && service && (
-            <div>
-              <div className="notice">Choose a clinic and practitioner for <strong>{service.title}</strong>.</div>
-              <h3 style={{ marginBottom: 12 }}>Clinic</h3>
-              <div className="pick" style={{ marginBottom: 26 }}>
-                {(serviceLocations.length ? serviceLocations : locations.map((l) => l.id)).map((lid) => (
-                  <button key={lid} className={`pick-item ${locationId === lid ? "sel" : ""}`} onClick={() => { setLocationId(lid); setStaffId(null); }}>
-                    <span className="name">{locName(lid)}</span><span>›</span>
-                  </button>
-                ))}
-              </div>
-              <h3 style={{ marginBottom: 12 }}>Practitioner</h3>
-              <div className="pick">
-                <button className={`pick-item ${staffId === null ? "sel" : ""}`} onClick={() => setStaffId(null)}>
-                  <span className="name">Any available practitioner</span><span>›</span>
-                </button>
-                {serviceStaff.slice(0, 8).map((sid) => (
-                  <button key={sid} className={`pick-item ${staffId === sid ? "sel" : ""}`} onClick={() => setStaffId(sid)}>
-                    <span className="name">{staffName(sid)}</span><span>›</span>
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 12, marginTop: 26 }}>
-                <button className="btn btn-ghost" onClick={() => go(0)}>← Back</button>
-                <button className="btn btn-primary" disabled={!locationId} onClick={() => go(2)}>Continue →</button>
-              </div>
-            </div>
-          )}
-
+          {/* Step 2: Date + time */}
           {step === 2 && service && (
             <div>
               <h3 style={{ marginBottom: 12 }}>Pick a date</h3>
               <div className="date-row">
                 {nextDays(14).map((d) => (
-                  <button key={d.toISOString()} className={`date-chip ${date?.toDateString() === d.toDateString() ? "sel" : ""}`}
+                  <button key={d.toISOString()} className={`date-chip ${date && isSameDay(date, d) ? "sel" : ""}`}
                     onClick={() => { setDate(d); setTime(null); }}>
                     <div className="dow">{d.toLocaleDateString("en-GB", { weekday: "short" })}</div>
                     <div className="dnum">{d.getDate()}</div>
@@ -165,7 +168,7 @@ export default function Booking() {
                       ))}
                     </div>
                   ) : (
-                    <p className="muted">No availability on this day for the current selection — try another date or practitioner.</p>
+                    <p className="muted">No available times on this day — please try another date.</p>
                   )}
                 </>
               )}
@@ -176,6 +179,7 @@ export default function Booking() {
             </div>
           )}
 
+          {/* Step 3: Details */}
           {step === 3 && (
             <form onSubmit={submit}>
               <div className="notice">Almost done — enter your details to request this appointment.</div>
@@ -200,10 +204,9 @@ export default function Booking() {
 
         <aside className="card summary">
           <h3 style={{ fontFamily: "var(--font-head)" }}>Your booking</h3>
+          <div className="row"><span>Clinic</span><span>{locationId ? locName(locationId) : "—"}</span></div>
           <div className="row"><span>Service</span><span>{service?.title ?? "—"}</span></div>
           <div className="row"><span>Duration</span><span>{service ? `${service.duration_min} min` : "—"}</span></div>
-          <div className="row"><span>Clinic</span><span>{locationId ? locName(locationId) : "—"}</span></div>
-          <div className="row"><span>Practitioner</span><span>{staffId ? staffName(staffId) : service ? "Any available" : "—"}</span></div>
           <div className="row"><span>Date</span><span>{date ? fmtDate(date) : "—"}</span></div>
           <div className="row"><span>Time</span><span>{time ?? "—"}</span></div>
           <div className="row" style={{ borderBottom: "none", marginTop: 6 }}>

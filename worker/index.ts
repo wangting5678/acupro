@@ -29,13 +29,31 @@ export default {
         const endMin = toMin(time) + Number(duration_min);
         const end = `${date} ${pad(Math.floor(endMin / 60))}:${pad(endMin % 60)}:00`;
 
+        // Auto-assign: pick a random practitioner at this clinic who is free at this time.
+        // (Admin can re-assign by drag-and-drop afterwards.)
+        let assigned: number | null = staff_id ?? null;
+        if (!assigned && location_id) {
+          const loc = await env.DB.prepare("SELECT abbr FROM locations WHERE id=?").bind(location_id).first<{ abbr: string }>();
+          if (loc?.abbr) {
+            const cands = await env.DB.prepare("SELECT id FROM practitioners WHERE clinics LIKE ?").bind("%" + loc.abbr + "%").all<{ id: number }>();
+            const busy = await env.DB.prepare(
+              "SELECT staff_id FROM appointments WHERE staff_id IS NOT NULL AND start_date < ? AND end_date > ?",
+            ).bind(end, start).all<{ staff_id: number }>();
+            const busyIds = new Set((busy.results || []).map((r) => r.staff_id));
+            const ids = (cands.results || []).map((r) => r.id);
+            const free = ids.filter((id) => !busyIds.has(id));
+            const pool = free.length ? free : ids;
+            if (pool.length) assigned = pool[Math.floor(Math.random() * pool.length)];
+          }
+        }
+
         const cust = await env.DB.prepare(
           "INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id",
         ).bind(name, phone ?? null, email).first<{ id: number }>();
 
         const appt = await env.DB.prepare(
           "INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date) VALUES(?,?,?,?,?) RETURNING id",
-        ).bind(location_id ?? null, staff_id ?? null, service_id, start, end)
+        ).bind(location_id ?? null, assigned, service_id, start, end)
           .first<{ id: number }>();
 
         await env.DB.prepare(

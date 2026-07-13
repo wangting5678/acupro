@@ -26,6 +26,16 @@ export function locationsForService(serviceId: number): number[] {
   return Array.from(new Set(ids));
 }
 
+/** Service ids offered at a location (falls back to all if none mapped). */
+export function serviceIdsAtLocation(locationId: number): Set<number> {
+  const ids = new Set(
+    staffServices
+      .filter((ss) => ss.location_id == null || ss.location_id === locationId)
+      .map((ss) => ss.service_id),
+  );
+  return ids;
+}
+
 function toMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
