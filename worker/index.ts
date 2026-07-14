@@ -59,6 +59,14 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    // Public service catalogue — only services marked visible to patients.
+    if (url.pathname === "/api/services" && request.method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT id,title,price,duration_min FROM services WHERE COALESCE(visibility,'public')='public' ORDER BY title",
+      ).all();
+      return json({ services: results });
+    }
+
     if (url.pathname === "/api/book" && request.method === "POST") {
       try {
         const b = (await request.json()) as any;

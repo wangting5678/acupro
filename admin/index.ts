@@ -80,7 +80,7 @@ export default {
 
     if (url.pathname === "/api/meta" && req.method === "GET") {
       const [services, practitioners, locations] = await Promise.all([
-        env.DB.prepare("SELECT id,title,price,duration_min,color FROM services ORDER BY title").all(),
+        env.DB.prepare("SELECT id,title,price,duration_min,color,visibility FROM services ORDER BY title").all(),
         env.DB.prepare("SELECT id,name,photo,clinics FROM practitioners ORDER BY position").all(),
         env.DB.prepare("SELECT id,name,abbr FROM locations ORDER BY name").all(),
       ]);
@@ -226,20 +226,21 @@ export default {
 
     // ---- service catalogue CRUD (title / price / duration / colour) ----
     if (url.pathname === "/api/services" && req.method === "GET") {
-      const { results } = await env.DB.prepare("SELECT id,title,price,duration_min,color FROM services ORDER BY title").all();
+      const { results } = await env.DB.prepare("SELECT id,title,price,duration_min,color,visibility FROM services ORDER BY title").all();
       return json({ services: results });
     }
     if (url.pathname === "/api/service_save" && req.method === "POST") {
-      const { id, title, price, duration_min, color } = (await req.json()) as any;
+      const { id, title, price, duration_min, color, visibility } = (await req.json()) as any;
       if (!title) return json({ error: "title required" }, 400);
+      const vis = visibility === "private" ? "private" : "public";
       if (id) {
-        await env.DB.prepare("UPDATE services SET title=?, price=?, duration_min=?, color=? WHERE id=?")
-          .bind(title, price ?? 0, duration_min ?? 60, color ?? null, id).run();
+        await env.DB.prepare("UPDATE services SET title=?, price=?, duration_min=?, color=?, visibility=? WHERE id=?")
+          .bind(title, price ?? 0, duration_min ?? 60, color ?? null, vis, id).run();
         return json({ ok: true, id });
       }
       const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid FROM services").first<{ nid: number }>();
-      await env.DB.prepare("INSERT INTO services(id,title,price,duration_min,color) VALUES(?,?,?,?,?)")
-        .bind(mx!.nid, title, price ?? 0, duration_min ?? 60, color ?? null).run();
+      await env.DB.prepare("INSERT INTO services(id,title,price,duration_min,color,visibility) VALUES(?,?,?,?,?,?)")
+        .bind(mx!.nid, title, price ?? 0, duration_min ?? 60, color ?? null, vis).run();
       return json({ ok: true, id: mx!.nid });
     }
     if (url.pathname === "/api/service_delete" && req.method === "POST") {
@@ -339,7 +340,13 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .svcrow:last-child{border-bottom:0}
   .svcrow input[type=color]{width:38px;height:34px;padding:2px;cursor:pointer}
   .svcrow .st{flex:1;max-width:320px}
-  .svcrow .sp{width:90px}.svcrow .sd{width:90px}
+  .svcrow .sp{width:70px}.svcrow .sd{width:70px}
+  .svchead{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:2px solid var(--line);font-size:.7rem;font-weight:700;color:#8a8172;text-transform:uppercase;letter-spacing:.04em}
+  .nf{display:flex;align-items:center;gap:5px}
+  .nf>span{color:#8a8172;font-size:.9rem}
+  .vistgl{border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:.8rem;font-weight:700;cursor:pointer;white-space:nowrap}
+  .vistgl.pub{background:#eef5f0;color:#256b45;border-color:#cfe0d5}
+  .vistgl.prv{background:#f6ede0;color:#a9772a;border-color:#e6d3ac}
   /* customer search */
   .csrch{position:relative}
   .csugg{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 9px 9px;box-shadow:0 8px 24px -12px rgba(0,0,0,.3);z-index:3;max-height:220px;overflow:auto}
@@ -528,6 +535,7 @@ function cancelMove(){pendingMove=null;closeM();render();}
 
 // modal
 function opt(arr,val,label,sel){return arr.map(o=>'<option value="'+o[val]+'"'+(String(o[val])===String(sel)?' selected':'')+'>'+esc(o[label])+'</option>').join('')}
+function svcOpt(sel){return meta.services.map(o=>'<option value="'+o.id+'"'+(String(o.id)===String(sel)?' selected':'')+'>'+esc(o.title)+(o.visibility==='private'?' (private)':'')+'</option>').join('')}
 function modalHtml(){return '<div class="modal-bg" id="mbg"><div class="modal" id="mbox"></div></div>'}
 function openEdit(id){const a=appts.find(x=>x.id===id);if(!a)return;
   const date=a.start_date.slice(0,10),time=a.start_date.slice(11,16);
@@ -535,7 +543,7 @@ function openEdit(id){const a=appts.find(x=>x.id===id);if(!a)return;
     '<div class="fld"><label>Customer name</label><input id="e_name" value="'+esc(a.full_name)+'"></div>'+
     '<div class="grid2"><div class="fld"><label>Phone</label><input id="e_phone" value="'+esc(a.phone)+'"></div><div class="fld"><label>Email</label><input id="e_email" value="'+esc(a.email)+'"></div></div>'+
     '<div class="grid2"><div class="fld"><label>Date</label><input id="e_date" type="date" value="'+date+'"></div><div class="fld"><label>Time</label><input id="e_time" type="time" value="'+time+'"></div></div>'+
-    '<div class="fld"><label>Service</label><select id="e_service">'+opt(meta.services,'id','title',a.service_id)+'</select></div>'+
+    '<div class="fld"><label>Service</label><select id="e_service">'+svcOpt(a.service_id)+'</select></div>'+
     '<div class="grid2"><div class="fld"><label>Practitioner</label><select id="e_staff"><option value="">Unassigned</option>'+opt(meta.practitioners,'id','name',a.staff_id)+'</select></div>'+
     '<div class="fld"><label>Location</label><select id="e_loc"><option value="">—</option>'+opt(meta.locations,'id','name',a.location_id)+'</select></div></div>'+
     '<div class="fld"><label>Notes</label><textarea id="e_notes" rows="2">'+esc(a.notes)+'</textarea></div>'+
@@ -555,7 +563,7 @@ function openCreate(){selCust=null;custResults=[];const d=view==='day'?ymd(dayDa
     '<div class="fld"><label>Customer name</label><input id="c_name" placeholder="Full name" oninput="if(selCust)clearCust(true)"></div>'+
     '<div class="grid2"><div class="fld"><label>Phone</label><input id="c_phone"></div><div class="fld"><label>Email</label><input id="c_email"></div></div>'+
     '<div class="grid2"><div class="fld"><label>Date</label><input id="c_date" type="date" value="'+d+'"></div><div class="fld"><label>Time</label><input id="c_time" type="time" value="10:00"></div></div>'+
-    '<div class="fld"><label>Service</label><select id="c_service">'+opt(meta.services,'id','title','')+'</select></div>'+
+    '<div class="fld"><label>Service</label><select id="c_service">'+svcOpt('')+'</select></div>'+
     '<div class="grid2"><div class="fld"><label>Practitioner</label><select id="c_staff"><option value="">Unassigned</option>'+opt(meta.practitioners,'id','name','')+'</select></div>'+
     '<div class="fld"><label>Location</label><select id="c_loc">'+opt(meta.locations,'id','name','')+'</select></div></div>'+
     '<div class="fld"><label>Notes</label><textarea id="c_notes" rows="2"></textarea></div>'+
@@ -624,14 +632,18 @@ function openServices(pid){const p=pracList.find(x=>x.id===pid);if(!p)return;
 async function toggleSvc(pid,sid,on){const p=pracList.find(x=>x.id===pid);const set=new Set((p.services||'').split(',').map(s=>s.trim()).filter(Boolean));on?set.add(String(sid)):set.delete(String(sid));p.services=meta.services.filter(s=>set.has(String(s.id))).map(s=>s.id).join(',');await saveP(ppayload(p))}
 // ---- services catalogue page ----
 async function loadServices(){const {ok,data}=await api('/api/services');if(!ok)return loginView('');svcList=data.services||[];meta.services=svcList;renderServices()}
+function spayload(s){return {id:s.id,title:s.title,price:s.price,duration_min:s.duration_min,color:s.color,visibility:s.visibility||'public'}}
+function visBtn(s){const pub=s.visibility!=='private';return '<button class="vistgl '+(pub?'pub':'prv')+'" onclick="svcVis('+s.id+')" title="'+(pub?'Bookable on the public site':'Admin-only — hidden from the public booking page')+'">'+(pub?'🌐 Public':'🔒 Private')+'</button>'}
 function renderServices(){
-  const rows=svcList.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price (£)"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration (min)"><button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('');
-  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Each service has a <b>colour</b> used to shade its bookings on the day view (so you can tell treatments apart at a glance). Price is in £, duration in minutes. Changes are saved automatically.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5"><input id="ns_title" placeholder="New service name" style="flex:1;max-width:280px"><input id="ns_price" type="number" placeholder="£" min="0" style="width:90px"><input id="ns_dur" type="number" placeholder="min" value="60" min="5" step="5" style="width:90px"><button class="btn" onclick="svcAdd()">+ Add</button></div>');
+  const head='<div class="svchead"><span style="width:38px"></span><span style="flex:1;max-width:320px">Service</span><span style="width:104px">Price (£)</span><span style="width:110px">Duration</span><span style="width:118px">Visibility</span><span style="flex:1"></span></div>';
+  const rows=svcList.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><div class="nf"><span>£</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price in £"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('');
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Each service has a <b>colour</b> (shades its bookings on the day view), a <b>price in £</b> and a <b>duration in minutes</b>. <b>Visibility:</b> 🌐 Public = shown on the public booking page; 🔒 Private = admin-only (staff can still book it here, patients can’t). Changes save automatically.</p><div class="rosterbox">'+head+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5" title="Colour"><input id="ns_title" placeholder="New service name" style="flex:1;max-width:280px"><div class="nf"><span>£</span><input id="ns_price" type="number" placeholder="0" min="0" style="width:80px"></div><div class="nf"><input id="ns_dur" type="number" placeholder="60" value="60" min="5" step="5" style="width:80px"><span>min</span></div><button class="btn" onclick="svcAdd()">+ Add</button></div>');
 }
 async function svcSave(s){await api('/api/service_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)})}
-async function svcSet(id,k,v){const s=svcList.find(x=>x.id===id);s[k]=(k==='price'||k==='duration_min')?+v:v;await svcSave({id:s.id,title:s.title,price:s.price,duration_min:s.duration_min,color:s.color})}
+async function svcSet(id,k,v){const s=svcList.find(x=>x.id===id);s[k]=(k==='price'||k==='duration_min')?+v:v;await svcSave(spayload(s))}
+async function svcVis(id){const s=svcList.find(x=>x.id===id);s.visibility=s.visibility==='private'?'public':'private';await svcSave(spayload(s));renderServices()}
 async function svcDel(id){if(!confirm('Delete this service? Existing bookings keep their time but lose the service label.'))return;await api('/api/service_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadServices()}
-async function svcAdd(){const t=$('#ns_title').value.trim();if(!t){alert('Enter a name');return}await svcSave({title:t,price:+$('#ns_price').value||0,duration_min:+$('#ns_dur').value||60,color:$('#ns_color').value});loadServices()}
+async function svcAdd(){const t=$('#ns_title').value.trim();if(!t){alert('Enter a name');return}await svcSave({title:t,price:+$('#ns_price').value||0,duration_min:+$('#ns_dur').value||60,color:$('#ns_color').value,visibility:'public'});loadServices()}
 async function logout(){await fetch('/api/logout');loginView('')}
 boot();
 </script></body></html>`;

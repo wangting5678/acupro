@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { servicesByCategory, locations, CONTACT, type Service } from "../data";
 import { slotsForDate, serviceIdsAtLocation } from "../lib/availability";
 
@@ -32,14 +32,26 @@ export default function Booking() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
+  const [publicIds, setPublicIds] = useState<Set<number> | null>(null);
+
+  // Only offer services the clinic has marked public (admin-only "private" services are hidden here).
+  useEffect(() => {
+    fetch("/api/services")
+      .then((r) => r.json())
+      .then((d: any) => { if (Array.isArray(d?.services)) setPublicIds(new Set(d.services.map((s: any) => Number(s.id)))); })
+      .catch(() => {});
+  }, []);
 
   const cats = useMemo(() => {
-    const all = servicesByCategory();
+    let all = servicesByCategory();
+    if (publicIds) {
+      all = all.map((c) => ({ ...c, items: c.items.filter((s) => publicIds.has(s.id)) })).filter((c) => c.items.length);
+    }
     if (locationId == null) return all;
     const ids = serviceIdsAtLocation(locationId);
     const filtered = all.map((c) => ({ ...c, items: c.items.filter((s) => ids.has(s.id)) })).filter((c) => c.items.length);
     return filtered.length ? filtered : all;
-  }, [locationId]);
+  }, [locationId, publicIds]);
 
   const slots = useMemo(() => {
     if (!service || !date) return [];
