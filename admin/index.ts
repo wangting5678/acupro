@@ -80,7 +80,7 @@ export default {
 
     if (url.pathname === "/api/meta" && req.method === "GET") {
       const [services, practitioners, locations] = await Promise.all([
-        env.DB.prepare("SELECT id,title,price,duration_min FROM services ORDER BY title").all(),
+        env.DB.prepare("SELECT id,title,price,duration_min,color FROM services ORDER BY title").all(),
         env.DB.prepare("SELECT id,name,photo,clinics FROM practitioners ORDER BY position").all(),
         env.DB.prepare("SELECT id,name,abbr FROM locations ORDER BY name").all(),
       ]);
@@ -104,6 +104,17 @@ export default {
          ORDER BY a.start_date LIMIT 1000`,
       ).all();
       return json({ appointments: results });
+    }
+
+    // fuzzy customer search (for the New booking modal)
+    if (url.pathname === "/api/customers" && req.method === "GET") {
+      const q = (url.searchParams.get("q") || "").trim();
+      if (q.length < 2) return json({ customers: [] });
+      const like = "%" + q + "%";
+      const { results } = await env.DB.prepare(
+        "SELECT id, full_name, email, phone FROM customers WHERE full_name LIKE ? OR phone LIKE ? OR email LIKE ? ORDER BY full_name LIMIT 12",
+      ).bind(like, like, like).all();
+      return json({ customers: results });
     }
 
     // drag-drop: reassign practitioner
@@ -132,7 +143,7 @@ export default {
     // admin creates a booking (back-fill / 补单 — any date/time allowed)
     if (url.pathname === "/api/create" && req.method === "POST") {
       const b = (await req.json()) as any;
-      const { start_date, service_id, staff_id, location_id, notes, full_name, phone, email } = b;
+      const { start_date, service_id, staff_id, location_id, notes, full_name, phone, email, customer_id } = b;
       if (!start_date || !full_name) return json({ error: "missing fields" }, 400);
       let end = start_date;
       if (service_id) {
@@ -140,7 +151,14 @@ export default {
         const t = new Date(start_date.replace(" ", "T") + "Z");
         end = new Date(t.getTime() + (svc?.duration_min ?? 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
       }
-      const cust = await env.DB.prepare("INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id").bind(full_name, phone ?? "", email ?? "").first<{ id: number }>();
+      // reuse an existing customer (keep their contact info fresh) or create a new one
+      let cust: { id: number } | null;
+      if (customer_id) {
+        await env.DB.prepare("UPDATE customers SET full_name=?, phone=?, email=? WHERE id=?").bind(full_name, phone ?? "", email ?? "", customer_id).run();
+        cust = { id: customer_id };
+      } else {
+        cust = await env.DB.prepare("INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id").bind(full_name, phone ?? "", email ?? "").first<{ id: number }>();
+      }
       const appt = await env.DB.prepare("INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date) VALUES(?,?,?,?,?) RETURNING id").bind(location_id ?? null, staff_id || null, service_id ?? null, start_date, end).first<{ id: number }>();
       await env.DB.prepare("INSERT INTO customer_appointments(customer_id,appointment_id,notes) VALUES(?,?,?)").bind(cust!.id, appt!.id, notes ?? "").run();
       ctx.waitUntil(notifyBooking(env, appt!.id, "new"));
@@ -206,7 +224,32 @@ export default {
       return json({ ok: true });
     }
 
-    // ---- working hours (weekly shifts, box-selected on the day view) ----
+    // ---- service catalogue CRUD (title / price / duration / colour) ----
+    if (url.pathname === "/api/services" && req.method === "GET") {
+      const { results } = await env.DB.prepare("SELECT id,title,price,duration_min,color FROM services ORDER BY title").all();
+      return json({ services: results });
+    }
+    if (url.pathname === "/api/service_save" && req.method === "POST") {
+      const { id, title, price, duration_min, color } = (await req.json()) as any;
+      if (!title) return json({ error: "title required" }, 400);
+      if (id) {
+        await env.DB.prepare("UPDATE services SET title=?, price=?, duration_min=?, color=? WHERE id=?")
+          .bind(title, price ?? 0, duration_min ?? 60, color ?? null, id).run();
+        return json({ ok: true, id });
+      }
+      const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid FROM services").first<{ nid: number }>();
+      await env.DB.prepare("INSERT INTO services(id,title,price,duration_min,color) VALUES(?,?,?,?,?)")
+        .bind(mx!.nid, title, price ?? 0, duration_min ?? 60, color ?? null).run();
+      return json({ ok: true, id: mx!.nid });
+    }
+    if (url.pathname === "/api/service_delete" && req.method === "POST") {
+      const { id } = (await req.json()) as any;
+      await env.DB.prepare("UPDATE appointments SET service_id=NULL WHERE service_id=?").bind(id).run();
+      await env.DB.prepare("DELETE FROM services WHERE id=?").bind(id).run();
+      return json({ ok: true });
+    }
+
+    // ---- working hours (weekly shifts, edited on the Practitioners page) ----
     if (url.pathname === "/api/hours" && req.method === "GET") {
       const { results } = await env.DB.prepare("SELECT id,practitioner_id,dow,start_time,end_time,date FROM working_hours").all();
       return json({ hours: results });
@@ -285,7 +328,25 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
   .col.drop-hi{background:#eef5f0}
   .appt{position:absolute;z-index:1;background:rgba(249,222,190,.72);border:1px solid rgba(201,138,63,.55);border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);backdrop-filter:saturate(1.1)}
-  .appt:hover{background:rgba(249,222,190,.92)}
+  .appt{line-height:1.2}
+  .appt .s{color:#5f5a50;font-size:.66rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* service legend */
+  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 8px;font-size:.72rem;color:#5f5a50}
+  .legend .lg{display:inline-flex;align-items:center;gap:5px}
+  .legend .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  /* services table */
+  .svcrow{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line)}
+  .svcrow:last-child{border-bottom:0}
+  .svcrow input[type=color]{width:38px;height:34px;padding:2px;cursor:pointer}
+  .svcrow .st{flex:1;max-width:320px}
+  .svcrow .sp{width:90px}.svcrow .sd{width:90px}
+  /* customer search */
+  .csrch{position:relative}
+  .csugg{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 9px 9px;box-shadow:0 8px 24px -12px rgba(0,0,0,.3);z-index:3;max-height:220px;overflow:auto}
+  .csugg div{padding:9px 12px;cursor:pointer;font-size:.86rem;border-bottom:1px solid #f0ebe1}
+  .csugg div:hover{background:#f3f7f4}
+  .cust-picked{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#eef5f0;border:1px solid #cfe0d5;border-radius:9px;padding:9px 12px;font-size:.86rem}
+  .cust-picked b.x{cursor:pointer;color:#b0553a}
   /* roster */
   .rosterbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
   .prow{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line)}
@@ -332,9 +393,12 @@ const PAGE = `<!doctype html><html lang="en"><head>
 const $=s=>document.querySelector(s);
 const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
-const START=9,END=21,HPX=60; // 9am-9pm, 60px/hour
+const START=9,END=21; let HPX=60; // 9am-9pm; HPX (px/hour) is recomputed per render to fit one screen
+function fitHPX(){HPX=Math.max(30,Math.min(58,Math.floor((window.innerHeight-300)/(END-START))))}
+const COLH=()=>(END-START)*HPX;
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[];
+let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[];
+let selCust=null,custTimer=null,custResults=[];
 const CLINIC_ALL=['VCT','CITY','ONLINE'];
 const DOW_NAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function mins(sd){return +sd.slice(11,13)*60 + +sd.slice(14,16)}
@@ -344,6 +408,7 @@ function curDow(){return dayDate.getDay()===0?7:dayDate.getDay()}
 function monday(d){d=new Date(d);const g=(d.getDay()+6)%7;d.setDate(d.getDate()-g);d.setHours(0,0,0,0);return d}
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function esc(s){return (s==null?'':''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function rgba(hex,a){const h=(hex||'#c98a3f').replace('#','');const n=parseInt(h.length===3?h.split('').map(c=>c+c).join(''):h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
 function initials(n){n=(''+(n||'')).replace(/\\(.*\\)/,'').trim();return n.split(/\\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase()}
 function avatar(photo,name,cls){return photo?'<img draggable="false" class="av '+(cls||'')+'" src="'+UK+photo+'" alt="">':'<span class="av ph '+(cls||'')+'">'+initials(name)+'</span>'}
 function cbadge(ab){if(!ab)return '';return '<span class="cbadge" style="background:'+(CLINIC_COLOR[ab]||'#7a7266')+'">'+esc(ab)+'</span>'}
@@ -354,11 +419,12 @@ async function doLogin(){const {ok,data}=await api('/api/login',{method:'POST',h
 async function boot(){const m=await api('/api/meta');if(!m.ok)return loginView('');meta=m.data;await load()}
 async function load(){const a=await api('/api/appointments');if(!a.ok)return loginView('');appts=a.data.appointments||[];const h=await api('/api/hours');hours=h.ok?(h.data.hours||[]):[];render()}
 
-function navbtn(p,label){return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#1f4d43':'#fff')+';font-weight:600" onclick="'+(p==='roster'?'goRoster':'goBookings')+'()">'+label+'</button>'}
-function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
-function render(){if(page==='roster')return renderRoster();view==='day'?renderDay():renderWeek()}
+function navbtn(p,label){const fn=p==='roster'?'goRoster':p==='services'?'goServices':'goBookings';return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#1f4d43':'#fff')+';font-weight:600" onclick="'+fn+'()">'+label+'</button>'}
+function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+navbtn('services','Services')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
+function render(){if(page==='roster')return renderRoster();if(page==='services')return renderServices();view==='day'?renderDay():renderWeek()}
 function goBookings(){page='bookings';render()}
 function goRoster(){page='roster';loadPrac()}
+function goServices(){page='services';loadServices()}
 
 function renderWeek(){
   const days=[...Array(7)].map((_,i)=>{const d=new Date(cursor);d.setDate(d.getDate()+i);return d});
@@ -379,8 +445,10 @@ function toDayView(){dayDate=new Date();view='day';render()}
 function toWeek(){view='week';render()}
 
 function renderDay(){
+  fitHPX();
   const ds=ymd(dayDate);
   const label=dayDate.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short',year:'numeric'});
+  const svcColor={};meta.services.forEach(s=>{if(s.color)svcColor[s.id]=s.color});
   const list=appts.filter(a=>a.start_date&&a.start_date.slice(0,10)===ds);
   const cols=meta.practitioners;
   // unassigned
@@ -388,7 +456,7 @@ function renderDay(){
   const unHtml='<div class="unassigned" data-pid="" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,\\'\\')"><h5>Unassigned — drag onto a practitioner</h5>'+
     (un.map(a=>'<span class="uchip" draggable="true" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')">'+a.start_date.slice(11,16)+' '+esc(a.full_name)+cbadge(a.loc_abbr)+'</span>').join('')||'<span style="color:#7a7266;font-size:.82rem">✅ No unassigned bookings right now. &nbsp;📧 Email notifications: up to <b>100/day · 3,000/month</b> (Resend free tier).</span>')+'</div>';
   // gutter
-  let gutter='<div class="col gutter"><div class="colhead"></div><div class="colbody">';
+  let gutter='<div class="col gutter"><div class="colhead"></div><div class="colbody" style="height:'+COLH()+'px">';
   for(let h=START;h<=END;h++){gutter+='<div class="hourlabel" style="top:'+((h-START)*HPX)+'px">'+((h%12)||12)+(h<12?'am':'pm')+'</div>'}
   gutter+='</div></div>';
   const dow=curDow();
@@ -400,13 +468,18 @@ function renderDay(){
     const laid=layoutLanes(items);
     const blocks=laid.map(a=>{
       const sm=mins(a.start_date), dur=a.duration_min||60;
-      const top=(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,24);
+      const top=(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,22);
       const w=100/a._lanes, left=a._lane*w;
-      return '<div class="appt" draggable="true" style="top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px)" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>';
+      const col=svcColor[a.service_id]||'#c98a3f';
+      const style='top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px);background:'+rgba(col,.22)+';border-color:'+rgba(col,.5)+';border-left:3px solid '+col;
+      const svcName=hgt>=40?'<div class="s">'+esc(a.service||'')+'</div>':'';
+      return '<div class="appt" draggable="true" title="'+esc(a.service||'')+' · '+esc(a.full_name)+'" style="'+style+'" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div>'+svcName+'</div>';
     }).join('');
-    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody">'+whHtml+lines+blocks+'</div></div>';
+    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" style="height:'+COLH()+'px">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
+  const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
+  const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#c98a3f')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
+  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+legend+'<div class="daygrid">'+gutter+body+'</div>');
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
@@ -475,9 +548,11 @@ async function saveEdit(id){const a=appts.find(x=>x.id===id);
   closeM();load();
 }
 async function delBk(id){const a=appts.find(x=>x.id===id);if(!confirm('Delete this booking?'))return;await api('/api/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ca_id:a.id,appointment_id:a.appointment_id})});closeM();load()}
-function openCreate(){const d=view==='day'?ymd(dayDate):ymd(new Date());
+function openCreate(){selCust=null;custResults=[];const d=view==='day'?ymd(dayDate):ymd(new Date());
   $('#mbox').innerHTML='<h3>New booking</h3>'+
-    '<div class="fld"><label>Customer name</label><input id="c_name" placeholder="Full name"></div>'+
+    '<div class="fld"><label>Find existing customer</label><div class="csrch"><input id="c_search" placeholder="Search name, phone or email…" oninput="custSearch(this.value)" autocomplete="off"><div class="csugg" id="c_sugg" style="display:none"></div></div></div>'+
+    '<div id="c_pickwrap"></div>'+
+    '<div class="fld"><label>Customer name</label><input id="c_name" placeholder="Full name" oninput="if(selCust)clearCust(true)"></div>'+
     '<div class="grid2"><div class="fld"><label>Phone</label><input id="c_phone"></div><div class="fld"><label>Email</label><input id="c_email"></div></div>'+
     '<div class="grid2"><div class="fld"><label>Date</label><input id="c_date" type="date" value="'+d+'"></div><div class="fld"><label>Time</label><input id="c_time" type="time" value="10:00"></div></div>'+
     '<div class="fld"><label>Service</label><select id="c_service">'+opt(meta.services,'id','title','')+'</select></div>'+
@@ -487,7 +562,16 @@ function openCreate(){const d=view==='day'?ymd(dayDate):ymd(new Date());
     '<div class="modal-actions"><span style="color:#999;font-size:.78rem;align-self:center">Back-fill: past times allowed</span><div style="display:flex;gap:8px"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="createBk()">Create</button></div></div>';
   $('#mbg').classList.add('on');
 }
-async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_time').value+':00',service_id:+$('#c_service').value,staff_id:$('#c_staff').value?+$('#c_staff').value:null,location_id:$('#c_loc').value?+$('#c_loc').value:null,notes:$('#c_notes').value,full_name:$('#c_name').value,phone:$('#c_phone').value,email:$('#c_email').value};
+function custSearch(q){clearTimeout(custTimer);const box=$('#c_sugg');if(!box)return;q=(q||'').trim();
+  if(q.length<2){box.style.display='none';box.innerHTML='';return}
+  custTimer=setTimeout(async()=>{const {ok,data}=await api('/api/customers?q='+encodeURIComponent(q));if(!ok)return;custResults=data.customers||[];
+    box.innerHTML=custResults.length?custResults.map(c=>'<div onclick="pickCust('+c.id+')">'+esc(c.full_name)+' <span style="color:#999">'+esc(c.email||'')+(c.phone?' · '+esc(c.phone):'')+'</span></div>').join(''):'<div style="color:#999;cursor:default">No match — fill the fields below to create a new customer</div>';
+    box.style.display='block';},250);
+}
+function pickCust(id){const c=custResults.find(x=>x.id===id);if(!c)return;selCust=c;$('#c_name').value=c.full_name||'';$('#c_phone').value=c.phone||'';$('#c_email').value=c.email||'';$('#c_search').value=c.full_name||'';$('#c_sugg').style.display='none';renderPicked();}
+function renderPicked(){const w=$('#c_pickwrap');if(!w)return;w.innerHTML=selCust?'<div class="cust-picked"><span>✓ Linked to existing customer <b>'+esc(selCust.full_name)+'</b> (edits update their record)</span><b class="x" onclick="clearCust()">✕</b></div>':''}
+function clearCust(keepFields){selCust=null;if(!keepFields){$('#c_search').value='';}renderPicked();}
+async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_time').value+':00',service_id:+$('#c_service').value,staff_id:$('#c_staff').value?+$('#c_staff').value:null,location_id:$('#c_loc').value?+$('#c_loc').value:null,notes:$('#c_notes').value,full_name:$('#c_name').value,phone:$('#c_phone').value,email:$('#c_email').value,customer_id:selCust?selCust.id:null};
   if(!body.full_name){alert('Enter customer name');return}
   await api('/api/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});closeM();load()}
 // ---- practitioner roster ----
@@ -538,6 +622,16 @@ function openServices(pid){const p=pracList.find(x=>x.id===pid);if(!p)return;
   $('#mbg').classList.add('on');
 }
 async function toggleSvc(pid,sid,on){const p=pracList.find(x=>x.id===pid);const set=new Set((p.services||'').split(',').map(s=>s.trim()).filter(Boolean));on?set.add(String(sid)):set.delete(String(sid));p.services=meta.services.filter(s=>set.has(String(s.id))).map(s=>s.id).join(',');await saveP(ppayload(p))}
+// ---- services catalogue page ----
+async function loadServices(){const {ok,data}=await api('/api/services');if(!ok)return loginView('');svcList=data.services||[];meta.services=svcList;renderServices()}
+function renderServices(){
+  const rows=svcList.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price (£)"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration (min)"><button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('');
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Each service has a <b>colour</b> used to shade its bookings on the day view (so you can tell treatments apart at a glance). Price is in £, duration in minutes. Changes are saved automatically.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5"><input id="ns_title" placeholder="New service name" style="flex:1;max-width:280px"><input id="ns_price" type="number" placeholder="£" min="0" style="width:90px"><input id="ns_dur" type="number" placeholder="min" value="60" min="5" step="5" style="width:90px"><button class="btn" onclick="svcAdd()">+ Add</button></div>');
+}
+async function svcSave(s){await api('/api/service_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)})}
+async function svcSet(id,k,v){const s=svcList.find(x=>x.id===id);s[k]=(k==='price'||k==='duration_min')?+v:v;await svcSave({id:s.id,title:s.title,price:s.price,duration_min:s.duration_min,color:s.color})}
+async function svcDel(id){if(!confirm('Delete this service? Existing bookings keep their time but lose the service label.'))return;await api('/api/service_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadServices()}
+async function svcAdd(){const t=$('#ns_title').value.trim();if(!t){alert('Enter a name');return}await svcSave({title:t,price:+$('#ns_price').value||0,duration_min:+$('#ns_dur').value||60,color:$('#ns_color').value});loadServices()}
 async function logout(){await fetch('/api/logout');loginView('')}
 boot();
 </script></body></html>`;
