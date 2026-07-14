@@ -208,13 +208,13 @@ export default {
 
     // ---- working hours (weekly shifts, box-selected on the day view) ----
     if (url.pathname === "/api/hours" && req.method === "GET") {
-      const { results } = await env.DB.prepare("SELECT id,practitioner_id,dow,start_time,end_time FROM working_hours").all();
+      const { results } = await env.DB.prepare("SELECT id,practitioner_id,dow,start_time,end_time,date FROM working_hours").all();
       return json({ hours: results });
     }
     if (url.pathname === "/api/hours_add" && req.method === "POST") {
-      const { practitioner_id, dow, start, end } = (await req.json()) as any;
+      const { practitioner_id, dow, start, end, date } = (await req.json()) as any;
       if (!practitioner_id || !dow || !start || !end) return json({ error: "missing" }, 400);
-      await env.DB.prepare("INSERT INTO working_hours(practitioner_id,dow,start_time,end_time) VALUES(?,?,?,?)").bind(practitioner_id, dow, start, end).run();
+      await env.DB.prepare("INSERT INTO working_hours(practitioner_id,dow,start_time,end_time,date) VALUES(?,?,?,?,?)").bind(practitioner_id, dow, start, end, date || null).run();
       return json({ ok: true });
     }
     if (url.pathname === "/api/hours_del" && req.method === "POST") {
@@ -280,6 +280,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .colbody{position:relative;height:660px;cursor:crosshair}
   .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.10);border:1px dashed rgba(31,77,67,.4);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;cursor:pointer;overflow:hidden}
   .whblock span{position:absolute;top:1px;left:4px}
+  .whblock.ovr{background:rgba(201,138,63,.16);border-color:rgba(201,138,63,.55);color:#8a5a1e}
   .wh-prev{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.2);border:1px solid var(--pine);border-radius:5px;z-index:4;pointer-events:none}
   .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee;pointer-events:none}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
@@ -319,7 +320,8 @@ const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
 const START=9,END=20,HPX=60; // 9am-8pm, 60px/hour
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[],sel=null;
+let page='bookings',pracList=[],newClin=new Set(),hours=[],sel=null,hoursMode='default';
+function setHMode(m){hoursMode=m;render()}
 const CLINIC_ALL=['VCT','CITY','ONLINE'];
 function mins(sd){return +sd.slice(11,13)*60 + +sd.slice(14,16)}
 function hmToMin(hm){return +hm.slice(0,2)*60 + +hm.slice(3,5)}
@@ -379,8 +381,10 @@ function renderDay(){
   const body=cols.map(p=>{
     const items=list.filter(a=>String(a.staff_id)===String(p.id));
     let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+((h-START)*HPX)+'px"></div>'}
-    const whs=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&h.dow===dow);
-    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);return '<div class="whblock" style="top:'+top+'px;height:'+hgt+'px" onclick="delHour('+h.id+',event)" title="Working hours '+h.start_time+'-'+h.end_time+' — click to remove"><span>'+h.start_time+'–'+h.end_time+'</span></div>'}).join('');
+    const ds=ymd(dayDate);
+    const ovr=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&h.date===ds);
+    const whs=ovr.length?ovr:hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date&&h.dow===dow);
+    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);const io=!!h.date;return '<div class="whblock'+(io?' ovr':'')+'" style="top:'+top+'px;height:'+hgt+'px" onclick="delHour('+h.id+',event)" title="'+(io?'Exception for this day':'Default weekly')+' '+h.start_time+'-'+h.end_time+' — click to remove"><span>'+h.start_time+'–'+h.end_time+(io?' · day':'')+'</span></div>'}).join('');
     const laid=layoutLanes(items);
     const blocks=laid.map(a=>{
       const sm=mins(a.start_date), dur=a.duration_min||60;
@@ -390,7 +394,7 @@ function renderDay(){
     }).join('');
     return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" onmousedown="hStart(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1;text-align:right;color:#7a7266;font-size:.8rem;padding-right:12px">Drag empty space → set working hours · drag a booking → move</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><span style="font-size:.8rem;color:#7a7266;margin-right:6px">Hours edit:</span><button class="nav-btn'+(hoursMode==='default'?' on':'')+'" onclick="setHMode(\\'default\\')" title="Box-select sets the recurring weekly schedule for this weekday">Default (weekly)</button><button class="nav-btn'+(hoursMode==='day'?' on':'')+'" onclick="setHMode(\\'day\\')" title="Box-select sets an exception for THIS date only, without changing the default">This day only</button><button class="btn" style="margin-left:8px" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
@@ -436,7 +440,7 @@ function hMove(e){if(!sel)return;sel.y1=e.clientY-sel.rect.top;drawSel()}
 async function hUp(){document.removeEventListener('mousemove',hMove);document.removeEventListener('mouseup',hUp);if(!sel)return;
   const a=snapY(Math.min(sel.y0,sel.y1)),b=snapY(Math.max(sel.y0,sel.y1)),pid=sel.pid;sel=null;
   if(b-a<30){render();return}
-  await api('/api/hours_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({practitioner_id:pid,dow:curDow(),start:minToHm(a),end:minToHm(b)})});load();
+  await api('/api/hours_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({practitioner_id:pid,dow:curDow(),start:minToHm(a),end:minToHm(b),date:hoursMode==='day'?ymd(dayDate):null})});load();
 }
 async function delHour(id,e){if(e)e.stopPropagation();if(!confirm('Remove this working-hours block?'))return;await api('/api/hours_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});load()}
 
