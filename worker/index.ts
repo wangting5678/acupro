@@ -79,12 +79,18 @@ export default {
         if (!assigned && location_id) {
           const loc = await env.DB.prepare("SELECT abbr FROM locations WHERE id=?").bind(location_id).first<{ abbr: string }>();
           if (loc?.abbr) {
-            const cands = await env.DB.prepare("SELECT id FROM practitioners WHERE clinics LIKE ?").bind("%" + loc.abbr + "%").all<{ id: number }>();
+            const cands = await env.DB.prepare("SELECT id, services FROM practitioners WHERE clinics LIKE ?").bind("%" + loc.abbr + "%").all<{ id: number; services: string }>();
             const busy = await env.DB.prepare(
               "SELECT staff_id FROM appointments WHERE staff_id IS NOT NULL AND start_date < ? AND end_date > ?",
             ).bind(end, start).all<{ staff_id: number }>();
             const busyIds = new Set((busy.results || []).map((r) => r.staff_id));
-            const ids = (cands.results || []).map((r) => r.id);
+            // Only practitioners who offer this service (empty services list = can do all).
+            const ids = (cands.results || [])
+              .filter((r) => {
+                const svc = (r.services || "").split(",").map((s) => s.trim()).filter(Boolean);
+                return svc.length === 0 || svc.includes(String(service_id));
+              })
+              .map((r) => r.id);
             const free = ids.filter((id) => !busyIds.has(id));
             const pool = free.length ? free : ids;
             if (pool.length) assigned = pool[Math.floor(Math.random() * pool.length)];

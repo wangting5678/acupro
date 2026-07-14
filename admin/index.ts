@@ -184,18 +184,18 @@ export default {
 
     // ---- practitioner roster CRUD ----
     if (url.pathname === "/api/prac" && req.method === "GET") {
-      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,email,position FROM practitioners ORDER BY position, id").all();
+      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,email,services,position FROM practitioners ORDER BY position, id").all();
       return json({ practitioners: results });
     }
     if (url.pathname === "/api/prac_save" && req.method === "POST") {
-      const { id, name, clinics, photo, email } = (await req.json()) as any;
+      const { id, name, clinics, photo, email, services } = (await req.json()) as any;
       if (!name) return json({ error: "name required" }, 400);
       if (id) {
-        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=?, email=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, email ?? "", id).run();
+        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=?, email=?, services=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, email ?? "", services ?? "", id).run();
         return json({ ok: true, id });
       }
       const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid, COALESCE(MAX(position),0)+1 AS npos FROM practitioners").first<{ nid: number; npos: number }>();
-      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,email,position) VALUES(?,?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", email ?? "", mx!.npos).run();
+      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,email,services,position) VALUES(?,?,?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", email ?? "", services ?? "", mx!.npos).run();
       return json({ ok: true, id: mx!.nid });
     }
     if (url.pathname === "/api/prac_delete" && req.method === "POST") {
@@ -277,11 +277,10 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .colhead{height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2;font-size:.82rem;font-weight:600;text-align:center;padding:4px;cursor:grab}
   .colhead:active{cursor:grabbing}
   .colhead img,.colhead .ph{width:26px;height:26px;border-radius:50%;margin-bottom:2px}
-  .colbody{position:relative;height:660px;cursor:crosshair}
-  .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.10);border:1px dashed rgba(31,77,67,.4);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;cursor:pointer;overflow:hidden}
+  .colbody{position:relative;height:720px}
+  .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.12);border:1px solid rgba(31,77,67,.28);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;overflow:hidden}
   .whblock span{position:absolute;top:1px;left:4px}
-  .whblock.ovr{background:rgba(201,138,63,.16);border-color:rgba(201,138,63,.55);color:#8a5a1e}
-  .wh-prev{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.2);border:1px solid var(--pine);border-radius:5px;z-index:4;pointer-events:none}
+  .move-prev{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.18);border:2px dashed var(--pine);border-radius:6px;z-index:6;pointer-events:none}
   .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee;pointer-events:none}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
   .col.drop-hi{background:#eef5f0}
@@ -312,17 +311,32 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .fld{margin-bottom:12px}.fld label{display:block;font-size:.8rem;font-weight:600;margin-bottom:4px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .modal-actions{display:flex;gap:8px;justify-content:space-between;margin-top:18px}
+  .prow .btn{padding:7px 11px;font-size:.82rem;white-space:nowrap}
+  /* weekly hours editor */
+  .hday{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
+  .hlabel{width:38px;font-weight:700;font-size:.82rem;color:var(--pine)}
+  .hchips{flex:1;display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+  .hchip{background:#eef5f0;border:1px solid #cfe0d5;border-radius:999px;padding:3px 9px;font-size:.78rem;font-weight:600;color:#1f4d43;display:inline-flex;align-items:center;gap:6px}
+  .hchip b{cursor:pointer;color:#b0553a;font-weight:700}
+  .hadd{display:flex;align-items:center;gap:4px}
+  .hadd input{width:96px;padding:5px 6px}
+  .hadd .btn{padding:6px 10px;font-size:.8rem}
+  /* services editor */
+  .svcgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;max-height:52vh;overflow:auto}
+  .svcopt{display:flex;align-items:center;gap:8px;font-size:.85rem;padding:3px 0}
+  .svcopt input{width:auto}
+  .movesum{background:#f3f7f4;border-radius:8px;padding:10px 12px;font-size:.9rem}
 </style></head><body>
 <div id="app"></div>
 <script>
 const $=s=>document.querySelector(s);
 const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
-const START=9,END=20,HPX=60; // 9am-8pm, 60px/hour
+const START=9,END=21,HPX=60; // 9am-9pm, 60px/hour
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[],sel=null,hoursMode='default';
-function setHMode(m){hoursMode=m;render()}
+let page='bookings',pracList=[],newClin=new Set(),hours=[];
 const CLINIC_ALL=['VCT','CITY','ONLINE'];
+const DOW_NAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function mins(sd){return +sd.slice(11,13)*60 + +sd.slice(14,16)}
 function hmToMin(hm){return +hm.slice(0,2)*60 + +hm.slice(3,5)}
 function minToHm(m){return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
@@ -381,10 +395,8 @@ function renderDay(){
   const body=cols.map(p=>{
     const items=list.filter(a=>String(a.staff_id)===String(p.id));
     let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+((h-START)*HPX)+'px"></div>'}
-    const ds=ymd(dayDate);
-    const ovr=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&h.date===ds);
-    const whs=ovr.length?ovr:hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date&&h.dow===dow);
-    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);const io=!!h.date;return '<div class="whblock'+(io?' ovr':'')+'" style="top:'+top+'px;height:'+hgt+'px" onclick="delHour('+h.id+',event)" title="'+(io?'Exception for this day':'Default weekly')+' '+h.start_time+'-'+h.end_time+' — click to remove"><span>'+h.start_time+'–'+h.end_time+(io?' · day':'')+'</span></div>'}).join('');
+    const whs=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date&&h.dow===dow);
+    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);return '<div class="whblock" style="top:'+top+'px;height:'+hgt+'px" title="Working hours '+h.start_time+'–'+h.end_time+' — edit in Practitioners"><span>'+h.start_time+'–'+h.end_time+'</span></div>'}).join('');
     const laid=layoutLanes(items);
     const blocks=laid.map(a=>{
       const sm=mins(a.start_date), dur=a.duration_min||60;
@@ -392,16 +404,16 @@ function renderDay(){
       const w=100/a._lanes, left=a._lane*w;
       return '<div class="appt" draggable="true" style="top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px)" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>';
     }).join('');
-    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" onmousedown="hStart(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
+    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><span style="font-size:.8rem;color:#7a7266;margin-right:6px">Hours edit:</span><button class="nav-btn'+(hoursMode==='default'?' on':'')+'" onclick="setHMode(\\'default\\')" title="Box-select sets the recurring weekly schedule for this weekday">Default (weekly)</button><button class="nav-btn'+(hoursMode==='day'?' on':'')+'" onclick="setHMode(\\'day\\')" title="Box-select sets an exception for THIS date only, without changing the default">This day only</button><button class="btn" style="margin-left:8px" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+'<div class="daygrid">'+gutter+body+'</div>');
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
 
 // drag-drop
-let dragId=null,colDragId=null;
-function dStart(e,id){dragId=id;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move'}
+let dragId=null,colDragId=null,grabDy=0,pendingMove=null;
+function dStart(e,id){dragId=id;const r=e.target.getBoundingClientRect();grabDy=e.clientY-r.top;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move'}
 function dEnd(e){e.target.classList.remove('dragging')}
 function colDragStart(e,pid){colDragId=pid;e.dataTransfer.effectAllowed='move';e.stopPropagation()}
 async function colDrop(e,targetPid){e.preventDefault();e.stopPropagation();const src=colDragId;colDragId=null;if(src==null||src===targetPid)return;
@@ -412,37 +424,34 @@ async function colDrop(e,targetPid){e.preventDefault();e.stopPropagation();const
 function dOver(e){e.preventDefault();e.currentTarget.classList.add('drop-hi')}
 function dLeave(e){e.currentTarget.classList.remove('drop-hi')}
 function layoutLanes(items){const arr=items.slice().sort((a,b)=>a.start_date.localeCompare(b.start_date));const laneEnd=[];arr.forEach(a=>{const s=mins(a.start_date),e=s+(a.duration_min||60);let ln=laneEnd.findIndex(x=>x<=s);if(ln<0){ln=laneEnd.length;laneEnd.push(e)}else laneEnd[ln]=e;a._lane=ln});const total=Math.max(laneEnd.length,1);arr.forEach(a=>a._lanes=total);return arr}
-async function dDrop(e,pid){e.preventDefault();e.currentTarget.classList.remove('drop-hi');if(dragId==null)return;
-  const a=appts.find(x=>x.id===dragId);if(!a){dragId=null;return}
+function dDrop(e,pid){e.preventDefault();e.currentTarget.classList.remove('drop-hi');if(dragId==null)return;
+  const a=appts.find(x=>x.id===dragId);const gy=grabDy;dragId=null;grabDy=0;if(!a)return;
   if(pid===''||pid==null){
-    await api('/api/assign',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:a.appointment_id,staff_id:null})});
-  }else{
-    const bodyEl=e.currentTarget.querySelector('.colbody');const rect=bodyEl.getBoundingClientRect();
-    let m=START*60+Math.round(((e.clientY-rect.top)/HPX*60)/15)*15; m=Math.max(START*60,Math.min(m,END*60-15));
-    const sd=ymd(dayDate)+' '+String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')+':00';
-    await api('/api/move',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:a.appointment_id,staff_id:pid,start_date:sd})});
+    pendingMove={kind:'unassign',appointment_id:a.appointment_id};
+    openMoveConfirm(a,'Unassigned','—');return;
   }
-  dragId=null;load();
+  const bodyEl=e.currentTarget.querySelector('.colbody');const rect=bodyEl.getBoundingClientRect();
+  let m=START*60+Math.round(((e.clientY-rect.top-gy)/HPX*60)/15)*15; m=Math.max(START*60,Math.min(m,END*60-15));
+  const hm=String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  const prac=meta.practitioners.find(p=>String(p.id)===String(pid));
+  pendingMove={kind:'move',appointment_id:a.appointment_id,staff_id:pid,start_date:ymd(dayDate)+' '+hm+':00'};
+  openMoveConfirm(a,prac?prac.name:('#'+pid),hm);
 }
-
-// box-select working hours (drag on empty column area)
-function snapY(y){let m=START*60+Math.round((y/HPX*60)/15)*15;return Math.max(START*60,Math.min(m,END*60))}
-function hStart(e,pid){
-  if(e.target!==e.currentTarget)return; // only start on empty column body
-  e.preventDefault();
-  const body=e.currentTarget,rect=body.getBoundingClientRect();
-  sel={pid,body,rect,y0:e.clientY-rect.top,y1:e.clientY-rect.top};
-  const pv=document.createElement('div');pv.className='wh-prev';body.appendChild(pv);sel.pv=pv;drawSel();
-  document.addEventListener('mousemove',hMove);document.addEventListener('mouseup',hUp);
+function openMoveConfirm(a,pracName,hm){
+  const from='<b>'+esc(a.practitioner||'Unassigned')+'</b> · '+a.start_date.slice(11,16);
+  const to='<b>'+esc(pracName)+'</b>'+(hm&&hm!=='—'?' · '+hm:'');
+  $('#mbox').innerHTML='<h3>Confirm change</h3>'+
+    '<p style="margin:0 0 4px;color:#7a7266;font-size:.85rem">Booking for <b>'+esc(a.full_name)+'</b> — '+esc(a.service||'')+'</p>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin:14px 0;font-size:.95rem"><span style="color:#999">'+from+'</span><span style="font-size:1.2rem;color:var(--gold)">→</span><span style="color:var(--pine)">'+to+'</span></div>'+
+    '<div class="modal-actions" style="justify-content:flex-end"><button class="btn ghost" onclick="cancelMove()">Cancel</button><button class="btn" onclick="confirmMove()">Confirm</button></div>';
+  $('#mbg').classList.add('on');
 }
-function drawSel(){const a=snapY(Math.min(sel.y0,sel.y1)),b=snapY(Math.max(sel.y0,sel.y1));sel.pv.style.top=((a-START*60)/60*HPX)+'px';sel.pv.style.height=Math.max((b-a)/60*HPX,2)+'px'}
-function hMove(e){if(!sel)return;sel.y1=e.clientY-sel.rect.top;drawSel()}
-async function hUp(){document.removeEventListener('mousemove',hMove);document.removeEventListener('mouseup',hUp);if(!sel)return;
-  const a=snapY(Math.min(sel.y0,sel.y1)),b=snapY(Math.max(sel.y0,sel.y1)),pid=sel.pid;sel=null;
-  if(b-a<30){render();return}
-  await api('/api/hours_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({practitioner_id:pid,dow:curDow(),start:minToHm(a),end:minToHm(b),date:hoursMode==='day'?ymd(dayDate):null})});load();
+async function confirmMove(){const pm=pendingMove;pendingMove=null;closeM();if(!pm)return;
+  if(pm.kind==='unassign'){await api('/api/assign',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:pm.appointment_id,staff_id:null})});}
+  else{await api('/api/move',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({appointment_id:pm.appointment_id,staff_id:pm.staff_id,start_date:pm.start_date})});}
+  load();
 }
-async function delHour(id,e){if(e)e.stopPropagation();if(!confirm('Remove this working-hours block?'))return;await api('/api/hours_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});load()}
+function cancelMove(){pendingMove=null;closeM();render();}
 
 // modal
 function opt(arr,val,label,sel){return arr.map(o=>'<option value="'+o[val]+'"'+(String(o[val])===String(sel)?' selected':'')+'>'+esc(o[label])+'</option>').join('')}
@@ -482,23 +491,53 @@ async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_ti
   if(!body.full_name){alert('Enter customer name');return}
   await api('/api/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});closeM();load()}
 // ---- practitioner roster ----
-async function loadPrac(){const {ok,data}=await api('/api/prac');if(!ok)return loginView('');pracList=data.practitioners||[];renderRoster()}
+async function loadPrac(){const [p,h]=await Promise.all([api('/api/prac'),api('/api/hours')]);if(!p.ok)return loginView('');pracList=p.data.practitioners||[];hours=h.ok?(h.data.hours||[]):[];renderRoster()}
 function clchip(ab,on,cb){return '<button class="clchip'+(on?' on':'')+'" style="'+(on?'background:'+CLINIC_COLOR[ab]+';color:#fff;border-color:'+CLINIC_COLOR[ab]:'')+'" onclick="'+cb+'">'+ab+'</button>'}
+function ppayload(p){return {id:p.id,name:p.name,clinics:p.clinics||'',photo:p.photo,email:p.email||'',services:p.services||''}}
+function svcCount(p){return (p.services||'').split(',').map(s=>s.trim()).filter(Boolean).length}
+function hoursCount(p){return hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date).length}
 function renderRoster(){
   const rows=pracList.map(p=>{const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));
     const chips=CLINIC_ALL.map(ab=>clchip(ab,set.has(ab),'toggleClinic('+p.id+',\\''+ab+'\\')')).join('');
-    return '<div class="prow">'+avatar(p.photo,p.name)+'<input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><input class="pemail" value="'+esc(p.email||'')+'" placeholder="email for notifications" onchange="setEmail('+p.id+',this.value)"><div class="clset">'+chips+'</div><button class="btn danger" onclick="delPrac('+p.id+')">Delete</button></div>';
+    const sc=svcCount(p),hc=hoursCount(p);
+    return '<div class="prow">'+avatar(p.photo,p.name)+'<input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><input class="pemail" value="'+esc(p.email||'')+'" placeholder="email for notifications" onchange="setEmail('+p.id+',this.value)"><div class="clset">'+chips+'</div>'+
+      '<button class="btn ghost" onclick="openHours('+p.id+')">🕑 Hours ('+hc+')</button>'+
+      '<button class="btn ghost" onclick="openServices('+p.id+')">Services ('+(sc||'all')+')</button>'+
+      '<button class="btn danger" onclick="delPrac('+p.id+')">Delete</button></div>';
   }).join('');
   const nc=CLINIC_ALL.map(ab=>clchip(ab,newClin.has(ab),'toggleNewClin(\\''+ab+'\\')')).join('');
-  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Practitioners</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Click a clinic chip to toggle where a practitioner works. Email is used for booking notifications. This roster drives the day-view columns and auto-assignment.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input id="np_name" placeholder="New practitioner name"><input id="np_email" placeholder="email"><div class="clset">'+nc+'</div><button class="btn" onclick="addPrac()">+ Add</button></div>');
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Practitioners</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Click a clinic chip to toggle where a practitioner works. <b>Hours</b> sets the weekly schedule (shown on the day view &amp; drives booking availability). <b>Services</b> sets which treatments they offer (used for auto-assignment). Email is used for booking notifications.</p><div class="rosterbox">'+rows+'</div><div class="addrow"><input id="np_name" placeholder="New practitioner name"><input id="np_email" placeholder="email"><div class="clset">'+nc+'</div><button class="btn" onclick="addPrac()">+ Add</button></div>');
 }
 function toggleNewClin(ab){newClin.has(ab)?newClin.delete(ab):newClin.add(ab);renderRoster()}
 async function saveP(p){await api('/api/prac_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)})}
-async function toggleClinic(id,ab){const p=pracList.find(x=>x.id===id);const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));set.has(ab)?set.delete(ab):set.add(ab);p.clinics=CLINIC_ALL.filter(a=>set.has(a)).join(',');renderRoster();await saveP({id:p.id,name:p.name,clinics:p.clinics,photo:p.photo,email:p.email})}
-async function renamePrac(id,name){const p=pracList.find(x=>x.id===id);p.name=name;await saveP({id:p.id,name:name,clinics:p.clinics,photo:p.photo,email:p.email})}
-async function setEmail(id,email){const p=pracList.find(x=>x.id===id);p.email=email;await saveP({id:p.id,name:p.name,clinics:p.clinics,photo:p.photo,email:email})}
+async function toggleClinic(id,ab){const p=pracList.find(x=>x.id===id);const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));set.has(ab)?set.delete(ab):set.add(ab);p.clinics=CLINIC_ALL.filter(a=>set.has(a)).join(',');renderRoster();await saveP(ppayload(p))}
+async function renamePrac(id,name){const p=pracList.find(x=>x.id===id);p.name=name;await saveP(ppayload(p))}
+async function setEmail(id,email){const p=pracList.find(x=>x.id===id);p.email=email;await saveP(ppayload(p))}
 async function delPrac(id){if(!confirm('Delete this practitioner? Their bookings become Unassigned.'))return;await api('/api/prac_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadPrac()}
-async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,email:$('#np_email').value.trim(),clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(',')});newClin=new Set();loadPrac()}
+async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,email:$('#np_email').value.trim(),clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(','),services:''});newClin=new Set();loadPrac()}
+// weekly hours editor (roster)
+async function refreshHours(){const h=await api('/api/hours');hours=h.ok?(h.data.hours||[]):[]}
+function openHours(pid){const p=pracList.find(x=>x.id===pid);if(!p)return;
+  const days=DOW_NAMES.map((nm,i)=>{const d=i+1;
+    const shifts=hours.filter(h=>String(h.practitioner_id)===String(pid)&&!h.date&&+h.dow===d).sort((a,b)=>a.start_time.localeCompare(b.start_time));
+    const chips=shifts.map(s=>'<span class="hchip">'+s.start_time+'–'+s.end_time+'<b onclick="delHourR('+s.id+','+pid+')" title="Remove">✕</b></span>').join('')||'<span style="color:#c3bcae;font-size:.8rem">Off</span>';
+    return '<div class="hday"><div class="hlabel">'+nm+'</div><div class="hchips">'+chips+'</div><div class="hadd"><input type="time" id="hs_'+d+'" value="09:00" step="900"><span>–</span><input type="time" id="he_'+d+'" value="17:00" step="900"><button class="btn ghost" onclick="addHourR('+pid+','+d+')">Add</button></div></div>';
+  }).join('');
+  $('#mbox').innerHTML='<h3>Weekly hours — '+esc(p.name)+'</h3><p style="color:#7a7266;font-size:.82rem;margin:0 0 12px">Recurring weekly schedule (09:00–21:00). The day view and the public booking page read availability from this.</p>'+days+'<div class="modal-actions" style="justify-content:flex-end"><button class="btn" onclick="closeM();renderRoster()">Done</button></div>';
+  $('#mbg').classList.add('on');
+}
+async function addHourR(pid,d){const s=$('#hs_'+d).value,e=$('#he_'+d).value;if(!s||!e||e<=s){alert('Enter a valid start and end (end after start)');return}
+  await api('/api/hours_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({practitioner_id:pid,dow:d,start:s,end:e,date:null})});
+  await refreshHours();openHours(pid);}
+async function delHourR(id,pid){await api('/api/hours_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});await refreshHours();openHours(pid);}
+// services editor (roster)
+function openServices(pid){const p=pracList.find(x=>x.id===pid);if(!p)return;
+  const set=new Set((p.services||'').split(',').map(s=>s.trim()).filter(Boolean));
+  const rows=meta.services.map(s=>'<label class="svcopt"><input type="checkbox" '+(set.has(String(s.id))?'checked':'')+' onchange="toggleSvc('+pid+','+s.id+',this.checked)"> '+esc(s.title)+'</label>').join('');
+  $('#mbox').innerHTML='<h3>Services — '+esc(p.name)+'</h3><p style="color:#7a7266;font-size:.82rem;margin:0 0 12px">Tick the treatments this practitioner offers. If none are ticked, they are treated as able to do <b>all</b> services (used when the booking page auto-assigns a free practitioner).</p><div class="svcgrid">'+rows+'</div><div class="modal-actions" style="justify-content:flex-end"><button class="btn" onclick="closeM();renderRoster()">Done</button></div>';
+  $('#mbg').classList.add('on');
+}
+async function toggleSvc(pid,sid,on){const p=pracList.find(x=>x.id===pid);const set=new Set((p.services||'').split(',').map(s=>s.trim()).filter(Boolean));on?set.add(String(sid)):set.delete(String(sid));p.services=meta.services.filter(s=>set.has(String(s.id))).map(s=>s.id).join(',');await saveP(ppayload(p))}
 async function logout(){await fetch('/api/logout');loginView('')}
 boot();
 </script></body></html>`;
