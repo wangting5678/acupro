@@ -5,6 +5,7 @@ export interface Env {
   ASSETS: Fetcher;
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
+  SITE_CURRENCY?: string; // per-site display currency: "GBP" (UK) | "AED" (UAE)
 }
 
 const json = (data: unknown, status = 200) =>
@@ -64,7 +65,7 @@ export default {
       const { results } = await env.DB.prepare(
         "SELECT id,title,price,duration_min FROM services WHERE COALESCE(visibility,'public')='public' ORDER BY title",
       ).all();
-      return json({ services: results });
+      return json({ services: results, currency: env.SITE_CURRENCY === "AED" ? "AED" : "GBP" });
     }
 
     if (url.pathname === "/api/book" && request.method === "POST") {

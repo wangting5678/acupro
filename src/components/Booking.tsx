@@ -32,26 +32,51 @@ export default function Booking() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
-  const [publicIds, setPublicIds] = useState<Set<number> | null>(null);
+  const [d1svc, setD1svc] = useState<Map<number, { id: number; title: string; price: number; duration_min: number }> | null>(null);
+  const [currency, setCurrency] = useState("GBP");
 
-  // Only offer services the clinic has marked public (admin-only "private" services are hidden here).
+  // Live catalogue from the admin (D1): title, price, duration + which services are public.
   useEffect(() => {
     fetch("/api/services")
       .then((r) => r.json())
-      .then((d: any) => { if (Array.isArray(d?.services)) setPublicIds(new Set(d.services.map((s: any) => Number(s.id)))); })
+      .then((d: any) => {
+        if (Array.isArray(d?.services)) {
+          const m = new Map<number, any>();
+          d.services.forEach((s: any) => m.set(Number(s.id), s));
+          setD1svc(m);
+        }
+        if (d?.currency) setCurrency(d.currency);
+      })
       .catch(() => {});
   }, []);
 
+  const cur = (p: number) => (currency === "AED" ? `AED ${p}` : `£${p}`);
+
   const cats = useMemo(() => {
     let all = servicesByCategory();
-    if (publicIds) {
-      all = all.map((c) => ({ ...c, items: c.items.filter((s) => publicIds.has(s.id)) })).filter((c) => c.items.length);
+    if (d1svc) {
+      // keep only public services, and take title/price/duration from the admin catalogue
+      all = all
+        .map((c) => ({
+          ...c,
+          items: c.items.filter((s) => d1svc.has(s.id)).map((s) => {
+            const o = d1svc.get(s.id)!;
+            return { ...s, title: o.title, price: o.price, duration_min: o.duration_min };
+          }),
+        }))
+        .filter((c) => c.items.length);
+      // services that exist only in the admin (newly added) — show under a general category
+      const known = new Set(all.flatMap((c) => c.items.map((i) => i.id)));
+      const extras = [...d1svc.values()].filter((o) => !known.has(Number(o.id)));
+      if (extras.length) {
+        all = [...all, { id: -1, name: "Treatments", items: extras.map((o) => ({ id: Number(o.id), title: o.title, price: o.price, duration_min: o.duration_min, category_id: -1 })) }];
+      }
     }
     if (locationId == null) return all;
     const ids = serviceIdsAtLocation(locationId);
-    const filtered = all.map((c) => ({ ...c, items: c.items.filter((s) => ids.has(s.id)) })).filter((c) => c.items.length);
+    const filtered = all.map((c) => ({ ...c, items: c.items.filter((s) => ids.has(s.id) || s.category_id === -1) })).filter((c) => c.items.length);
     return filtered.length ? filtered : all;
-  }, [locationId, publicIds]);
+  }, [locationId, d1svc]);
 
   const slots = useMemo(() => {
     if (!service || !date) return [];
@@ -146,7 +171,7 @@ export default function Booking() {
                       <button key={s.id} className={`pick-item ${service?.id === s.id ? "sel" : ""}`}
                         onClick={() => { setService(s); setDate(null); setTime(null); go(2); }}>
                         <span className="meta"><span className="name">{s.title}</span><span className="dur">{s.duration_min} min</span></span>
-                        <span className="price">{s.price > 0 ? `£${s.price}` : "Enquire"}</span>
+                        <span className="price">{s.price > 0 ? `from ${cur(s.price)}` : "Enquire"}</span>
                       </button>
                     ))}
                   </div>
@@ -224,7 +249,7 @@ export default function Booking() {
           <div className="row" style={{ borderBottom: "none", marginTop: 6 }}>
             <span>Price</span>
             <span style={{ fontFamily: "var(--font-head)", fontSize: "1.3rem", color: "var(--pine)" }}>
-              {service ? (service.price > 0 ? `£${service.price}` : "On enquiry") : "—"}
+              {service ? (service.price > 0 ? `from ${cur(service.price)}` : "On enquiry") : "—"}
             </span>
           </div>
           <p className="muted" style={{ marginTop: 14 }}>

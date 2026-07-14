@@ -2,6 +2,9 @@
   "name": "acupro-uk",
   "compatibility_date": "2025-05-15",
   "main": "worker/index.ts",
+  "vars": {
+    "SITE_CURRENCY": "GBP"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",

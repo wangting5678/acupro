@@ -51,6 +51,11 @@ async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "upd
   } catch { /* ignore */ }
 }
 
+async function getCurrency(env: Env): Promise<string> {
+  const r = await env.DB.prepare("SELECT value FROM settings WHERE key='currency'").first<{ value: string }>();
+  return r?.value === "AED" ? "AED" : "GBP";
+}
+
 async function sessionToken(pw: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw + "::acupro-admin-session"));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -84,7 +89,15 @@ export default {
         env.DB.prepare("SELECT id,name,photo,clinics FROM practitioners ORDER BY position").all(),
         env.DB.prepare("SELECT id,name,abbr FROM locations ORDER BY name").all(),
       ]);
-      return json({ services: services.results, practitioners: practitioners.results, locations: locations.results });
+      return json({ services: services.results, practitioners: practitioners.results, locations: locations.results, currency: await getCurrency(env) });
+    }
+
+    // global currency setting (GBP | AED)
+    if (url.pathname === "/api/currency" && req.method === "POST") {
+      const { currency } = (await req.json()) as any;
+      const cur = currency === "AED" ? "AED" : "GBP";
+      await env.DB.prepare("INSERT INTO settings(key,value) VALUES('currency',?) ON CONFLICT(key) DO UPDATE SET value=?").bind(cur, cur).run();
+      return json({ ok: true, currency: cur });
     }
 
     if (url.pathname === "/api/appointments" && req.method === "GET") {
@@ -635,9 +648,10 @@ async function loadServices(){const {ok,data}=await api('/api/services');if(!ok)
 function spayload(s){return {id:s.id,title:s.title,price:s.price,duration_min:s.duration_min,color:s.color,visibility:s.visibility||'public'}}
 function visBtn(s){const pub=s.visibility!=='private';return '<button class="vistgl '+(pub?'pub':'prv')+'" onclick="svcVis('+s.id+')" title="'+(pub?'Bookable on the public site':'Admin-only — hidden from the public booking page')+'">'+(pub?'🌐 Public':'🔒 Private')+'</button>'}
 function renderServices(){
-  const head='<div class="svchead"><span style="width:38px"></span><span style="flex:1;max-width:320px">Service</span><span style="width:104px">Price (£)</span><span style="width:110px">Duration</span><span style="width:118px">Visibility</span><span style="flex:1"></span></div>';
-  const rows=svcList.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><div class="nf"><span>£</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price in £"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('');
-  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 16px">Each service has a <b>colour</b> (shades its bookings on the day view), a <b>price in £</b> and a <b>duration in minutes</b>. <b>Visibility:</b> 🌐 Public = shown on the public booking page; 🔒 Private = admin-only (staff can still book it here, patients can’t). Changes save automatically.</p><div class="rosterbox">'+head+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5" title="Colour"><input id="ns_title" placeholder="New service name" style="flex:1;max-width:280px"><div class="nf"><span>£</span><input id="ns_price" type="number" placeholder="0" min="0" style="width:80px"></div><div class="nf"><input id="ns_dur" type="number" placeholder="60" value="60" min="5" step="5" style="width:80px"><span>min</span></div><button class="btn" onclick="svcAdd()">+ Add</button></div>');
+  const sym='£'; // UK catalogue base price is in GBP; each public site shows its own currency
+  const head='<div class="svchead"><span style="width:38px"></span><span style="flex:1;max-width:320px">Service</span><span style="width:104px">Price ('+sym+')</span><span style="width:110px">Duration</span><span style="width:118px">Visibility</span><span style="flex:1"></span></div>';
+  const rows=svcList.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><div class="nf"><span>'+sym+'</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('');
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 12px">Each service has a <b>colour</b> (shades its bookings on the day view), a <b>price (£, UK base)</b> and a <b>duration in minutes</b>. <b>Visibility:</b> 🌐 Public = shown on the public booking page; 🔒 Private = admin-only (staff can still book it here, patients can’t). The public booking page reads this list (title, price, duration); each site shows its own currency (UK £, UAE AED). Changes save automatically.</p><div class="rosterbox">'+head+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5" title="Colour"><input id="ns_title" placeholder="New service name" style="flex:1;max-width:280px"><div class="nf"><span>'+sym+'</span><input id="ns_price" type="number" placeholder="0" min="0" style="width:80px"></div><div class="nf"><input id="ns_dur" type="number" placeholder="60" value="60" min="5" step="5" style="width:80px"><span>min</span></div><button class="btn" onclick="svcAdd()">+ Add</button></div>');
 }
 async function svcSave(s){await api('/api/service_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)})}
 async function svcSet(id,k,v){const s=svcList.find(x=>x.id===id);s[k]=(k==='price'||k==='duration_min')?+v:v;await svcSave(spayload(s))}
