@@ -17,9 +17,14 @@ function nextDays(n: number): Date[] {
 }
 const fmtDate = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 const isSameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-const nowHHMM = () => {
-  const n = new Date();
-  return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
+const toMinLocal = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+// "now" in the clinic's timezone (UK bookings are London time even if the visitor is elsewhere)
+const clinicNow = (tz: string) => {
+  try {
+    const p = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+    const g = (t: string) => (p.find((x) => x.type === t) || { value: "0" }).value;
+    return { date: `${g("year")}-${g("month")}-${g("day")}`, min: (+g("hour")) * 60 + (+g("minute")) };
+  } catch { const n = new Date(); return { date: "", min: n.getHours() * 60 + n.getMinutes() }; }
 };
 
 export default function Booking() {
@@ -34,6 +39,17 @@ export default function Booking() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", notes: "" });
   const [d1svc, setD1svc] = useState<Map<number, { id: number; title: string; price: number; duration_min: number }> | null>(null);
   const [currency, setCurrency] = useState("GBP");
+  const [avail, setAvail] = useState<{ days: { date: string; slots: { t: string; s: string }[] }[]; tz: string } | null>(null);
+
+  // Live availability from D1 (working hours minus existing appointments) once clinic + service are chosen.
+  useEffect(() => {
+    if (!service || !locationId) { setAvail(null); return; }
+    setAvail(null);
+    fetch(`/api/availability?location_id=${locationId}&service_id=${service.id}`)
+      .then((r) => r.json())
+      .then((d: any) => { if (d && Array.isArray(d.days)) setAvail({ days: d.days, tz: d.tz || "Europe/London" }); })
+      .catch(() => {});
+  }, [service, locationId]);
 
   // Live catalogue from the admin (D1): title, price, duration + which services are public.
   useEffect(() => {
@@ -78,23 +94,19 @@ export default function Booking() {
     return filtered.length ? filtered : all;
   }, [locationId, d1svc]);
 
-  // Multi-day grid: each working day with availability becomes a column of time slots.
+  // Multi-day grid derived from live availability. Each slot is one of three states:
+  // available (bookable) · booked (all practitioners taken) · past (before now, or within the next hour).
   const days = useMemo(() => {
-    if (!service) return [];
-    const now = nowHHMM();
-    const today = new Date();
-    const out: { date: Date; slots: { time: string; past: boolean }[] }[] = [];
-    for (const d of nextDays(28)) {
-      const list = slotsForDate(service, d, { locationId });
-      if (!list.length) continue;
-      const isToday = isSameDay(d, today);
-      const slots = list.map((s) => ({ time: s.time, past: isToday && s.time <= now }));
-      if (slots.every((s) => s.past)) continue; // skip a fully-past today
-      out.push({ date: d, slots });
-      if (out.length >= 10) break;
-    }
-    return out;
-  }, [service, locationId]);
+    if (!avail) return [];
+    const now = clinicNow(avail.tz || "Europe/London");
+    return avail.days.map((d) => ({
+      date: new Date(d.date + "T00:00:00"),
+      slots: d.slots.map((sl) => {
+        const past = d.date < now.date || (d.date === now.date && toMinLocal(sl.t) <= now.min + 60);
+        return { time: sl.t, state: past ? "past" : (sl.s === "booked" ? "booked" : "available") };
+      }),
+    })).filter((d) => d.slots.some((s) => s.state !== "past"));
+  }, [avail]);
 
   const go = (n: number) => setStep(n);
 
@@ -147,7 +159,7 @@ export default function Booking() {
       </div>
 
       <div className="booking-wrap">
-        <div>
+        <div style={{ minWidth: 0 }}>
           {/* Step 0: Clinic */}
           {step === 0 && (
             <div>
@@ -189,29 +201,34 @@ export default function Booking() {
             </div>
           )}
 
-          {/* Step 2: Date + time — multi-day grid */}
+          {/* Step 2: Date + time — compact multi-day grid, live from D1 */}
           {step === 2 && service && (
             <div>
               <h3 style={{ marginBottom: 4 }}>Choose a time</h3>
-              <p className="muted" style={{ margin: "0 0 14px" }}>Pick any available slot across the next available days.</p>
-              {days.length ? (
-                <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8 }}>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", margin: "0 0 12px", fontSize: ".8rem", color: "var(--ink-soft, #7a7266)" }}>
+                <span>Next 30 days · London time.</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, border: "1px solid var(--line,#e5ddcf)", background: "#fff", display: "inline-block" }} /> Available</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: "#ded6c6", display: "inline-block" }} /> Booked</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: "#f2ede3", display: "inline-block" }} /> Unavailable</span>
+              </div>
+              {avail === null ? (
+                <p className="muted">Loading availability…</p>
+              ) : days.length ? (
+                <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 }}>
                   {days.map(({ date: d, slots }) => (
-                    <div key={d.toISOString()} style={{ minWidth: 122, flex: "0 0 122px" }}>
-                      <div style={{ background: "var(--pine)", color: "#fff", fontWeight: 700, fontSize: ".85rem", textAlign: "center", padding: "9px 6px", borderRadius: "10px 10px 0 0" }}>
+                    <div key={d.toISOString()} style={{ minWidth: 104, flex: "0 0 104px" }}>
+                      <div style={{ background: "var(--pine)", color: "#fff", fontWeight: 700, fontSize: ".78rem", textAlign: "center", padding: "7px 4px", borderRadius: "9px 9px 0 0" }}>
                         {d.toLocaleDateString("en-GB", { weekday: "short" })}, {d.toLocaleDateString("en-GB", { month: "short", day: "numeric" })}
                       </div>
-                      <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, padding: 8, border: "1px solid var(--line, #e5ddcf)", borderTop: "none", borderRadius: "0 0 10px 10px" }}>
+                      <div style={{ maxHeight: 296, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5, padding: 6, border: "1px solid var(--line, #e5ddcf)", borderTop: "none", borderRadius: "0 0 9px 9px" }}>
                         {slots.map((sl) => {
+                          const base = { padding: "6px", borderRadius: 7, textAlign: "center" as const, fontSize: ".8rem" };
+                          if (sl.state === "past") return <div key={sl.time} style={{ ...base, color: "#c3bcae", textDecoration: "line-through", background: "#f2ede3" }}>{sl.time}</div>;
+                          if (sl.state === "booked") return <div key={sl.time} title="Fully booked" style={{ ...base, color: "#9a917f", background: "#ded6c6" }}>{sl.time}</div>;
                           const sel = !!date && isSameDay(date, d) && time === sl.time;
-                          if (sl.past) {
-                            return <div key={sl.time} style={{ padding: "8px", borderRadius: 8, textAlign: "center", fontSize: ".85rem", color: "#c3bcae", textDecoration: "line-through", background: "#f6f2ea" }}>{sl.time}</div>;
-                          }
                           return (
                             <button key={sl.time} onClick={() => { setDate(d); setTime(sl.time); }}
-                              style={{ padding: "8px", borderRadius: 8, textAlign: "center", fontSize: ".85rem", cursor: "pointer",
-                                border: sel ? "1px solid var(--pine)" : "1px solid var(--line, #e5ddcf)",
-                                background: sel ? "var(--pine)" : "#fff", color: sel ? "#fff" : "var(--ink, #23201c)", fontWeight: sel ? 700 : 400 }}>
+                              style={{ ...base, cursor: "pointer", border: sel ? "1px solid var(--pine)" : "1px solid var(--line, #e5ddcf)", background: sel ? "var(--pine)" : "#fff", color: sel ? "#fff" : "var(--ink, #23201c)", fontWeight: sel ? 700 : 400 }}>
                               {sl.time}
                             </button>
                           );
@@ -221,9 +238,9 @@ export default function Booking() {
                   ))}
                 </div>
               ) : (
-                <p className="muted">No available times in the coming weeks — please contact us on WhatsApp.</p>
+                <p className="muted">No available times in the next 30 days — please contact us on WhatsApp.</p>
               )}
-              <div style={{ display: "flex", gap: 12, marginTop: 22 }}>
+              <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
                 <button className="btn btn-ghost" onClick={() => go(1)}>← Back</button>
                 <button className="btn btn-primary" disabled={!time} onClick={() => go(3)}>Continue →</button>
               </div>

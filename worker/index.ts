@@ -78,6 +78,54 @@ export default {
       return json({ practitioners: results });
     }
 
+    // Real availability: per-day 30-min slots for a clinic+service, from practitioner working hours minus existing appointments.
+    if (url.pathname === "/api/availability" && request.method === "GET") {
+      const locId = Number(url.searchParams.get("location_id"));
+      const svcId = Number(url.searchParams.get("service_id"));
+      const TZ = "Europe/London"; // UK clinic timezone (UAE site would use Asia/Dubai)
+      if (!locId || !svcId) return json({ error: "missing params" }, 400);
+      const loc = await env.DB.prepare("SELECT abbr FROM locations WHERE id=?").bind(locId).first<{ abbr: string }>();
+      const svc = await env.DB.prepare("SELECT duration_min FROM services WHERE id=?").bind(svcId).first<{ duration_min: number }>();
+      const abbr = loc?.abbr; const dur = svc?.duration_min || 60;
+      if (!abbr) return json({ days: [], tz: TZ });
+      const pracs = ((await env.DB.prepare("SELECT id,services FROM practitioners WHERE clinics LIKE ?").bind("%" + abbr + "%").all<{ id: number; services: string }>()).results) || [];
+      const staff = pracs.filter((p) => { const s = (p.services || "").split(",").map((x) => x.trim()).filter(Boolean); return !s.length || s.includes(String(svcId)); }).map((p) => p.id);
+      if (!staff.length) return json({ days: [], tz: TZ });
+      const ph = staff.map(() => "?").join(",");
+      const wh = (((await env.DB.prepare(`SELECT practitioner_id,dow,start_time,end_time,date FROM working_hours WHERE practitioner_id IN (${ph})`).bind(...staff).all<any>()).results) || []);
+      const dfmt = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+      const todayStr = dfmt.format(new Date());
+      const base = new Date(todayStr + "T12:00:00Z");
+      const DAYS = 31;
+      const endStr = dfmt.format(new Date(base.getTime() + DAYS * 86400000));
+      const appts = (((await env.DB.prepare(`SELECT staff_id,start_date,end_date FROM appointments WHERE staff_id IN (${ph}) AND start_date < ? AND end_date > ?`).bind(...staff, endStr + " 23:59:59", todayStr + " 00:00:00").all<any>()).results) || []);
+      const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const days: any[] = [];
+      for (let i = 0; i < DAYS; i++) {
+        const ds = dfmt.format(new Date(base.getTime() + i * 86400000));
+        const dow = ((new Date(ds + "T12:00:00Z").getUTCDay() + 6) % 7) + 1; // 1=Mon..7=Sun
+        const anyFree: Record<string, boolean> = {}; const working: Record<string, boolean> = {};
+        for (const sid of staff) {
+          const ex = wh.filter((w) => w.practitioner_id === sid && w.date === ds);
+          const blocks = ex.length ? ex : wh.filter((w) => w.practitioner_id === sid && !w.date && Number(w.dow) === dow);
+          if (!blocks.length) continue;
+          const sAppts = appts.filter((a) => a.staff_id === sid && (a.start_date || "").slice(0, 10) === ds).map((a) => ({ s: toMin((a.start_date || "").slice(11, 16)), e: toMin((a.end_date || "").slice(11, 16)) }));
+          for (const b of blocks) {
+            const ws = toMin(b.start_time), we = toMin(b.end_time);
+            for (let t = ws; t + dur <= we; t += 30) {
+              const k = String(t); working[k] = true;
+              if (!sAppts.some((a) => a.s < t + dur && a.e > t)) anyFree[k] = true;
+            }
+          }
+        }
+        const times = Object.keys(working).map(Number).sort((a, b) => a - b);
+        if (!times.length) continue;
+        days.push({ date: ds, slots: times.map((t) => ({ t: pad(Math.floor(t / 60)) + ":" + pad(t % 60), s: anyFree[String(t)] ? "available" : "booked" })) });
+      }
+      return json({ days, tz: TZ, currency: env.SITE_CURRENCY === "AED" ? "AED" : "GBP" });
+    }
+
     if (url.pathname === "/api/book" && request.method === "POST") {
       try {
         const b = (await request.json()) as any;
