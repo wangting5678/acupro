@@ -418,7 +418,14 @@ const START=9,END=21; let HPX=60; // 9am-9pm; HPX (px/hour) is recomputed per re
 function fitHPX(){HPX=Math.max(30,Math.min(58,Math.floor((window.innerHeight-300)/(END-START))))}
 const COLH=()=>(END-START)*HPX;
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[];
+let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='';
+function setLocFilter(v){locFilter=v;render()}
+function locFilterCtrl(){
+  const opts='<option value="">All locations</option>'+meta.locations.filter(l=>l.abbr).map(l=>'<option value="'+l.abbr+'"'+(locFilter===l.abbr?' selected':'')+'>'+esc(l.name)+'</option>').join('');
+  return '<span style="font-size:.8rem;color:#7a7266;margin:0 6px 0 4px">Location:</span><select onchange="setLocFilter(this.value)" style="width:auto;padding:8px 10px;font-weight:600;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer">'+opts+'</select>';
+}
+function pracInLoc(p){return !locFilter||(p.clinics||'').split(',').map(s=>s.trim()).includes(locFilter)}
+function apptInLoc(a){return !locFilter||a.loc_abbr===locFilter}
 let selCust=null,custTimer=null,custResults=[];
 const CLINIC_ALL=['VCT','CITY','ONLINE'];
 const DOW_NAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -453,11 +460,11 @@ function renderWeek(){
   const label=cursor.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' – '+end.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
   const todayS=ymd(new Date());
   const cols=days.map(d=>{const ds=ymd(d);
-    const list=appts.filter(a=>a.start_date&&a.start_date.slice(0,10)===ds).sort((a,b)=>a.start_date.localeCompare(b.start_date));
+    const list=appts.filter(a=>a.start_date&&a.start_date.slice(0,10)===ds&&apptInLoc(a)).sort((a,b)=>a.start_date.localeCompare(b.start_date));
     const chips=list.map(a=>'<div class="chip"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>').join('')||'<div class="empty">—</div>';
     return '<div class="day'+(ds===todayS?' today':'')+'" onclick=\\'openDay("'+ds+'")\\'><h4>'+d.toLocaleDateString('en-GB',{weekday:'short'})+'<b>'+d.getDate()+'</b></h4>'+chips+'</div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn on">Week</button><button class="nav-btn" onclick="toDayView()">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="wk(-7)">←</button><button class="nav-btn" onclick="wkToday()">This week</button><button class="nav-btn" onclick="wk(7)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="week">'+cols+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn on">Week</button><button class="nav-btn" onclick="toDayView()">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="wk(-7)">←</button><button class="nav-btn" onclick="wkToday()">This week</button><button class="nav-btn" onclick="wk(7)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="week">'+cols+'</div>');
 }
 function wk(n){cursor.setDate(cursor.getDate()+n);render()}
 function wkToday(){cursor=monday(new Date());render()}
@@ -471,9 +478,9 @@ function renderDay(){
   const label=dayDate.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short',year:'numeric'});
   const svcColor={};meta.services.forEach(s=>{if(s.color)svcColor[s.id]=s.color});
   const list=appts.filter(a=>a.start_date&&a.start_date.slice(0,10)===ds);
-  const cols=meta.practitioners;
+  const cols=meta.practitioners.filter(pracInLoc);
   // unassigned
-  const un=list.filter(a=>!a.staff_id);
+  const un=list.filter(a=>!a.staff_id&&apptInLoc(a));
   const unHtml='<div class="unassigned" data-pid="" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,\\'\\')"><h5>Unassigned — drag onto a practitioner</h5>'+
     (un.map(a=>'<span class="uchip" draggable="true" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')">'+a.start_date.slice(11,16)+' '+esc(a.full_name)+cbadge(a.loc_abbr)+'</span>').join('')||'<span style="color:#7a7266;font-size:.82rem">✅ No unassigned bookings right now. &nbsp;📧 Email notifications: up to <b>100/day · 3,000/month</b> (Resend free tier).</span>')+'</div>';
   // gutter
@@ -500,7 +507,7 @@ function renderDay(){
   }).join('');
   const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
   const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#c98a3f')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span><span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+legend+'<div class="daygrid">'+gutter+body+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+legend+'<div class="daygrid">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
