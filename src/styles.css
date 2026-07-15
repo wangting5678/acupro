@@ -202,3 +202,11 @@ img { max-width: 100%; display: block; }
 }
 #info-tip.below::after { top: -5px; }
 #info-tip.above::after { bottom: -5px; }
+
+/* Booking time-grid slots */
+.bslot { padding: 6px; border-radius: 7px; text-align: center; font-size: 0.8rem; }
+.bslot--avail { border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; font-weight: 400; transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
+.bslot--avail:hover { border-color: var(--pine); background: #eef5f0; color: var(--pine); font-weight: 600; }
+.bslot--avail.sel { background: var(--pine); color: #fff; border-color: var(--pine); font-weight: 700; }
+.bslot--booked { background: #ded6c6; color: #9a917f; text-decoration: line-through; }
+.bslot--past { background: #f2ede3; color: #c3bcae; text-decoration: line-through; }

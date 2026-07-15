@@ -221,17 +221,13 @@ export default function Booking() {
                       <div style={{ background: "var(--pine)", color: "#fff", fontWeight: 700, fontSize: ".78rem", textAlign: "center", padding: "7px 4px", borderRadius: "9px 9px 0 0" }}>
                         {d.toLocaleDateString("en-GB", { weekday: "short" })}, {d.toLocaleDateString("en-GB", { month: "short", day: "numeric" })}
                       </div>
-                      <div style={{ maxHeight: 296, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5, padding: 6, border: "1px solid var(--line, #e5ddcf)", borderTop: "none", borderRadius: "0 0 9px 9px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5, padding: 6, border: "1px solid var(--line, #e5ddcf)", borderTop: "none", borderRadius: "0 0 9px 9px" }}>
                         {slots.map((sl) => {
-                          const base = { padding: "6px", borderRadius: 7, textAlign: "center" as const, fontSize: ".8rem" };
-                          if (sl.state === "past") return <div key={sl.time} style={{ ...base, color: "#c3bcae", textDecoration: "line-through", background: "#f2ede3" }}>{sl.time}</div>;
-                          if (sl.state === "booked") return <div key={sl.time} title="Fully booked" style={{ ...base, color: "#9a917f", background: "#ded6c6" }}>{sl.time}</div>;
+                          if (sl.state === "past") return <div key={sl.time} className="bslot bslot--past">{sl.time}</div>;
+                          if (sl.state === "booked") return <div key={sl.time} className="bslot bslot--booked" title="Fully booked">{sl.time}</div>;
                           const sel = !!date && isSameDay(date, d) && time === sl.time;
                           return (
-                            <button key={sl.time} onClick={() => { setDate(d); setTime(sl.time); }}
-                              style={{ ...base, cursor: "pointer", border: sel ? "1px solid var(--pine)" : "1px solid var(--line, #e5ddcf)", background: sel ? "var(--pine)" : "#fff", color: sel ? "#fff" : "var(--ink, #23201c)", fontWeight: sel ? 700 : 400 }}>
-                              {sl.time}
-                            </button>
+                            <button key={sl.time} className={`bslot bslot--avail ${sel ? "sel" : ""}`} onClick={() => { setDate(d); setTime(sl.time); }}>{sl.time}</button>
                           );
                         })}
                       </div>
