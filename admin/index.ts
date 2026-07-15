@@ -216,18 +216,18 @@ export default {
 
     // ---- practitioner roster CRUD ----
     if (url.pathname === "/api/prac" && req.method === "GET") {
-      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,email,services,position FROM practitioners ORDER BY position, id").all();
+      const { results } = await env.DB.prepare("SELECT id,name,photo,clinics,email,services,bio,position FROM practitioners ORDER BY position, id").all();
       return json({ practitioners: results });
     }
     if (url.pathname === "/api/prac_save" && req.method === "POST") {
-      const { id, name, clinics, photo, email, services } = (await req.json()) as any;
+      const { id, name, clinics, photo, email, services, bio } = (await req.json()) as any;
       if (!name) return json({ error: "name required" }, 400);
       if (id) {
-        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=?, email=?, services=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, email ?? "", services ?? "", id).run();
+        await env.DB.prepare("UPDATE practitioners SET name=?, clinics=?, photo=?, email=?, services=?, bio=? WHERE id=?").bind(name, clinics ?? "", photo ?? null, email ?? "", services ?? "", bio ?? "", id).run();
         return json({ ok: true, id });
       }
       const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid, COALESCE(MAX(position),0)+1 AS npos FROM practitioners").first<{ nid: number; npos: number }>();
-      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,email,services,position) VALUES(?,?,?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", email ?? "", services ?? "", mx!.npos).run();
+      await env.DB.prepare("INSERT INTO practitioners(id,name,photo,clinics,email,services,bio,position) VALUES(?,?,?,?,?,?,?,?)").bind(mx!.nid, name, photo ?? null, clinics ?? "", email ?? "", services ?? "", bio ?? "", mx!.npos).run();
       return json({ ok: true, id: mx!.nid });
     }
     if (url.pathname === "/api/prac_delete" && req.method === "POST") {
@@ -337,6 +337,8 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .colhead:active{cursor:grabbing}
   .colhead img,.colhead .ph{width:26px;height:26px;border-radius:50%;margin-bottom:2px}
   .colbody{position:relative;height:720px}
+  .colbody.bookable{cursor:pointer}
+  .hovertime{position:absolute;left:4px;background:var(--pine);color:#fff;font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:5px;z-index:3;pointer-events:none;transform:translateY(-1px);white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2)}
   .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.12);border:1px solid rgba(31,77,67,.28);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;overflow:hidden}
   .whblock span{position:absolute;top:1px;left:4px}
   .move-prev{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.18);border:2px dashed var(--pine);border-radius:6px;z-index:6;pointer-events:none}
@@ -445,7 +447,8 @@ function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'
 function esc(s){return (s==null?'':''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function rgba(hex,a){const h=(hex||'#c98a3f').replace('#','');const n=parseInt(h.length===3?h.split('').map(c=>c+c).join(''):h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
 function initials(n){n=(''+(n||'')).replace(/\\(.*\\)/,'').trim();return n.split(/\\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase()}
-function avatar(photo,name,cls){return photo?'<img draggable="false" class="av '+(cls||'')+'" src="'+UK+photo+'" alt="">':'<span class="av ph '+(cls||'')+'">'+initials(name)+'</span>'}
+function photoUrl(photo){return /^https?:\\/\\//.test(photo||'')?photo:UK+photo}
+function avatar(photo,name,cls){return photo?'<img draggable="false" class="av '+(cls||'')+'" src="'+photoUrl(photo)+'" alt="">':'<span class="av ph '+(cls||'')+'">'+initials(name)+'</span>'}
 function cbadge(ab){if(!ab)return '';return '<span class="cbadge" style="background:'+(CLINIC_COLOR[ab]||'#7a7266')+'">'+esc(ab)+'</span>'}
 async function api(p,o){const r=await fetch(p,o);let d={};try{d=await r.json()}catch(e){};return{ok:r.ok,data:d}}
 
@@ -510,7 +513,7 @@ function renderDay(){
       const svcName=hgt>=40?'<div class="s">'+esc(a.service||'')+'</div>':'';
       return '<div class="appt" draggable="true" title="'+esc(a.service||'')+' · '+esc(a.full_name)+'" style="'+style+'" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div>'+svcName+'</div>';
     }).join('');
-    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody" style="height:'+COLH()+'px">'+whHtml+lines+blocks+'</div></div>';
+    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody bookable" style="height:'+COLH()+'px" onmousemove="colHover(event,'+p.id+')" onmouseleave="colHoverOut()" onclick="colClick(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
   const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
   const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#c98a3f')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
@@ -518,6 +521,17 @@ function renderDay(){
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
 function dyToday(){dayDate=new Date();render()}
+// hover empty column → show time; click empty → new booking prefilled with this practitioner + time
+function hm12(m){let h=Math.floor(m/60);const mm=m%60,ap=h<12?'am':'pm';h=(h%12)||12;return h+':'+String(mm).padStart(2,'0')+' '+ap}
+function snapMin(e,body){const rect=body.getBoundingClientRect();let m=START*60+Math.round(((e.clientY-rect.top-PAD)/HPX*60)/15)*15;return Math.max(START*60,Math.min(m,END*60-15))}
+function colHover(e,pid){const body=e.currentTarget;if(e.target.closest('.appt')){colHoverOut();return}
+  const m=snapMin(e,body);let el=body.querySelector('.hovertime');if(!el){el=document.createElement('div');el.className='hovertime';body.appendChild(el)}
+  el.style.top=(PAD+(m-START*60)/60*HPX)+'px';el.textContent=hm12(m)+' · + book'}
+function colHoverOut(){document.querySelectorAll('.hovertime').forEach(x=>x.remove())}
+function colClick(e,pid){if(e.target.closest('.appt'))return;const m=snapMin(e,e.currentTarget);
+  const p=meta.practitioners.find(x=>String(x.id)===String(pid));const ABBR2LOC={VCT:3,CITY:11,ONLINE:4};
+  const ab=p&&p.clinics?(p.clinics.split(',').map(s=>s.trim()).filter(Boolean)[0]):null;
+  colHoverOut();openCreate({staff_id:pid,time:minToHm(m),date:ymd(dayDate),location_id:ab?ABBR2LOC[ab]:''})}
 
 // drag-drop
 let dragId=null,colDragId=null,grabDy=0,pendingMove=null;
@@ -584,16 +598,16 @@ async function saveEdit(id){const a=appts.find(x=>x.id===id);
   closeM();load();
 }
 async function delBk(id){const a=appts.find(x=>x.id===id);if(!confirm('Delete this booking?'))return;await api('/api/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ca_id:a.id,appointment_id:a.appointment_id})});closeM();load()}
-function openCreate(){selCust=null;custResults=[];const d=view==='day'?ymd(dayDate):ymd(new Date());
+function openCreate(pre){pre=pre||{};selCust=null;custResults=[];const d=pre.date||(view==='day'?ymd(dayDate):ymd(new Date()));
   $('#mbox').innerHTML='<h3>New booking</h3>'+
     '<div class="fld"><label>Find existing customer</label><div class="csrch"><input id="c_search" placeholder="Search name, phone or email…" oninput="custSearch(this.value)" autocomplete="off"><div class="csugg" id="c_sugg" style="display:none"></div></div></div>'+
     '<div id="c_pickwrap"></div>'+
     '<div class="fld"><label>Customer name</label><input id="c_name" placeholder="Full name" oninput="if(selCust)clearCust(true)"></div>'+
     '<div class="grid2"><div class="fld"><label>Phone</label><input id="c_phone"></div><div class="fld"><label>Email</label><input id="c_email"></div></div>'+
-    '<div class="grid2"><div class="fld"><label>Date</label><input id="c_date" type="date" value="'+d+'"></div><div class="fld"><label>Time</label><input id="c_time" type="time" value="10:00"></div></div>'+
+    '<div class="grid2"><div class="fld"><label>Date</label><input id="c_date" type="date" value="'+d+'"></div><div class="fld"><label>Time</label><input id="c_time" type="time" value="'+(pre.time||'10:00')+'"></div></div>'+
     '<div class="fld"><label>Service</label><select id="c_service">'+svcOpt('')+'</select></div>'+
-    '<div class="grid2"><div class="fld"><label>Practitioner</label><select id="c_staff"><option value="">Unassigned</option>'+opt(meta.practitioners,'id','name','')+'</select></div>'+
-    '<div class="fld"><label>Location</label><select id="c_loc">'+opt(meta.locations,'id','name','')+'</select></div></div>'+
+    '<div class="grid2"><div class="fld"><label>Practitioner</label><select id="c_staff"><option value="">Unassigned</option>'+opt(meta.practitioners,'id','name',pre.staff_id||'')+'</select></div>'+
+    '<div class="fld"><label>Location</label><select id="c_loc">'+opt(meta.locations,'id','name',pre.location_id||'')+'</select></div></div>'+
     '<div class="fld"><label>Notes</label><textarea id="c_notes" rows="2"></textarea></div>'+
     '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer;margin:-4px 0 4px"><input type="checkbox" id="c_emailnote" checked style="width:auto;margin:0"> Send this note in the confirmation email (patient &amp; practitioner)</label>'+
     '<div class="modal-actions"><span style="color:#999;font-size:.78rem;align-self:center">Back-fill: past times allowed</span><div style="display:flex;gap:8px"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="createBk()">Create</button></div></div>';
@@ -614,14 +628,14 @@ async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_ti
 // ---- practitioner roster ----
 async function loadPrac(){const [p,h]=await Promise.all([api('/api/prac'),api('/api/hours')]);if(!p.ok)return loginView('');pracList=p.data.practitioners||[];hours=h.ok?(h.data.hours||[]):[];renderRoster()}
 function clchip(ab,on,cb){return '<button class="clchip'+(on?' on':'')+'" style="'+(on?'background:'+CLINIC_COLOR[ab]+';color:#fff;border-color:'+CLINIC_COLOR[ab]:'')+'" onclick="'+cb+'">'+ab+'</button>'}
-function ppayload(p){return {id:p.id,name:p.name,clinics:p.clinics||'',photo:p.photo,email:p.email||'',services:p.services||''}}
+function ppayload(p){return {id:p.id,name:p.name,clinics:p.clinics||'',photo:p.photo,email:p.email||'',services:p.services||'',bio:p.bio||''}}
 function svcCount(p){return (p.services||'').split(',').map(s=>s.trim()).filter(Boolean).length}
 function hoursCount(p){return hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date).length}
 function renderRoster(){
   const rows=pracList.map(p=>{const set=new Set((p.clinics||'').split(',').map(s=>s.trim()).filter(Boolean));
     const chips=CLINIC_ALL.map(ab=>clchip(ab,set.has(ab),'toggleClinic('+p.id+',\\''+ab+'\\')')).join('');
     const sc=svcCount(p),hc=hoursCount(p);
-    return '<div class="prow">'+avatar(p.photo,p.name)+'<input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><input class="pemail" value="'+esc(p.email||'')+'" placeholder="email for notifications" onchange="setEmail('+p.id+',this.value)"><div class="clset">'+chips+'</div>'+
+    return '<div class="prow"><span onclick="openPrac('+p.id+')" title="Edit photo &amp; bio" style="cursor:pointer;display:inline-flex">'+avatar(p.photo,p.name)+'</span><input class="pname" value="'+esc(p.name)+'" onchange="renamePrac('+p.id+',this.value)"><input class="pemail" value="'+esc(p.email||'')+'" placeholder="email for notifications" onchange="setEmail('+p.id+',this.value)"><div class="clset">'+chips+'</div>'+
       '<button class="btn ghost" onclick="openHours('+p.id+')">🕑 Hours ('+hc+')</button>'+
       '<button class="btn ghost" onclick="openServices('+p.id+')">Services ('+(sc||'all')+')</button>'+
       '<button class="btn danger" onclick="delPrac('+p.id+')">Delete</button></div>';
@@ -635,7 +649,18 @@ async function toggleClinic(id,ab){const p=pracList.find(x=>x.id===id);const set
 async function renamePrac(id,name){const p=pracList.find(x=>x.id===id);p.name=name;await saveP(ppayload(p))}
 async function setEmail(id,email){const p=pracList.find(x=>x.id===id);p.email=email;await saveP(ppayload(p))}
 async function delPrac(id){if(!confirm('Delete this practitioner? Their bookings become Unassigned.'))return;await api('/api/prac_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadPrac()}
-async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,email:$('#np_email').value.trim(),clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(','),services:''});newClin=new Set();loadPrac()}
+async function addPrac(){const name=$('#np_name').value.trim();if(!name){alert('Enter a name');return}await saveP({name,email:$('#np_email').value.trim(),clinics:CLINIC_ALL.filter(a=>newClin.has(a)).join(','),services:'',bio:''});newClin=new Set();loadPrac()}
+// practitioner detail (photo + bio)
+function pdPreview(){const v=$('#pd_photo').value.trim();$('#pv_av').innerHTML=v?('<img class="av big" src="'+(/^https?:/.test(v)?v:UK+v)+'">'):('<span class="av ph big">'+initials($('#pd_name').value)+'</span>')}
+function openPrac(id){const p=pracList.find(x=>x.id===id);if(!p)return;
+  $('#mbox').innerHTML='<h3>Practitioner details — '+esc(p.name)+'</h3>'+
+    '<div style="display:flex;gap:14px;align-items:center;margin-bottom:12px"><span id="pv_av">'+avatar(p.photo,p.name,'big')+'</span><div style="flex:1"><label style="display:block;font-size:.8rem;font-weight:600;margin-bottom:4px">Photo URL / path</label><input id="pd_photo" value="'+esc(p.photo||'')+'" placeholder="/staff/14.jpg or https://…" oninput="pdPreview()"></div></div>'+
+    '<div class="fld"><label>Name</label><input id="pd_name" value="'+esc(p.name)+'"></div>'+
+    '<div class="fld"><label>Bio / Information — shown to patients on the Team page</label><textarea id="pd_bio" rows="5" placeholder="Short bio, specialisation, experience…">'+esc(p.bio||'')+'</textarea></div>'+
+    '<div class="modal-actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="savePrac('+p.id+')">Save</button></div>';
+  $('#mbg').classList.add('on');
+}
+async function savePrac(id){const p=pracList.find(x=>x.id===id);p.photo=$('#pd_photo').value.trim()||null;p.name=$('#pd_name').value.trim()||p.name;p.bio=$('#pd_bio').value;await saveP(ppayload(p));closeM();renderRoster()}
 // weekly hours editor (roster)
 async function refreshHours(){const h=await api('/api/hours');hours=h.ok?(h.data.hours||[]):[]}
 function openHours(pid){const p=pracList.find(x=>x.id===pid);if(!p)return;
