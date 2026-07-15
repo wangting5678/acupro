@@ -14,7 +14,7 @@ const initials = (name: string) =>
         <h1>Our team</h1>
         <p class="lead center">Experienced, qualified practitioners in acupuncture, herbal medicine and wellness care.</p>
       </div>
-      <div class="grid grid-3">
+      <div class="grid grid-3" id="teamGrid">
         {team.map((m) => (
           <div class="card team-card">
             <div class="team-avatar">{initials(m.name)}</div>

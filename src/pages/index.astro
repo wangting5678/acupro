@@ -56,9 +56,9 @@ const initials = (name: string) =>
             <h3>{cat.name}</h3>
             <div class="svc-list">
               {cat.items.map((s) => (
-                <div class="svc-row">
+                <div class="svc-row" data-svc-id={s.id}>
                   <div class="meta"><span class="name">{s.title}</span><span class="dur">{s.duration_min} min</span></div>
-                  <div class="price">{s.price > 0 ? `£${s.price}` : <small>Enquire</small>}</div>
+                  <div class="price">{s.price > 0 ? `from £${s.price}` : <small>Enquire</small>}</div>
                 </div>
               ))}
             </div>
@@ -72,7 +72,7 @@ const initials = (name: string) =>
   <section class="section" id="team" style="background:#fff;border-block:1px solid var(--line)">
     <div class="container">
       <div class="center" style="margin-bottom:44px"><div class="eyebrow">Meet the practitioners</div><h2>Our team</h2></div>
-      <div class="grid grid-3">
+      <div class="grid grid-3" id="teamGrid" data-limit="6">
         {team.slice(0, 6).map((m) => (
           <div class="card team-card">
             <div class="team-avatar">{initials(m.name)}</div>

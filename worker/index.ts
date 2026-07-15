@@ -70,6 +70,14 @@ export default {
       return json({ services: results, currency: env.SITE_CURRENCY === "AED" ? "AED" : "GBP" });
     }
 
+    // Public practitioner roster — for the Team page (name, photo, bio).
+    if (url.pathname === "/api/practitioners" && request.method === "GET") {
+      const { results } = await env.DB.prepare(
+        "SELECT id,name,photo,clinics,bio FROM practitioners ORDER BY position, id",
+      ).all();
+      return json({ practitioners: results });
+    }
+
     if (url.pathname === "/api/book" && request.method === "POST") {
       try {
         const b = (await request.json()) as any;

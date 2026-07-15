@@ -18,9 +18,9 @@ const seo = getSeo("/pricing", "Pricing", "Acupuncture, herbal medicine, massage
           <h3>{cat.name}</h3>
           <div class="svc-list">
             {cat.items.map((s) => (
-              <div class="svc-row">
+              <div class="svc-row" data-svc-id={s.id}>
                 <div class="meta"><span class="name">{s.title}</span><span class="dur">{s.duration_min} min</span></div>
-                <div class="price">{s.price > 0 ? `£${s.price}` : <small>Enquire</small>}</div>
+                <div class="price">{s.price > 0 ? `from £${s.price}` : <small>Enquire</small>}</div>
               </div>
             ))}
           </div>
