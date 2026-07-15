@@ -184,3 +184,21 @@ img { max-width: 100%; display: block; }
 .confirm-box .tick { width: 66px; height: 66px; border-radius: 50%; background: var(--pine); color: #fff; display: grid; place-items: center; margin: 0 auto 18px; font-size: 2rem; }
 .muted { color: var(--ink-soft); font-size: 0.9rem; }
 .notice { background: #fbf3e8; border: 1px solid var(--gold-soft); border-radius: 12px; padding: 14px 18px; font-size: 0.88rem; color: var(--ink-soft); margin-bottom: 22px; }
+
+/* Custom info tooltip (services + team) */
+#info-tip {
+  position: fixed; z-index: 9999; max-width: 300px;
+  background: var(--pine); color: #fff;
+  font-family: var(--font-body); font-size: 0.85rem; line-height: 1.5;
+  padding: 11px 14px; border-radius: 12px;
+  box-shadow: 0 12px 32px -10px rgba(31, 77, 67, 0.55);
+  pointer-events: none; opacity: 0; transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+#info-tip.show { opacity: 1; transform: translateY(0); }
+#info-tip::after {
+  content: ""; position: absolute; left: var(--tip-arrow, 24px); width: 10px; height: 10px;
+  background: var(--pine); transform: rotate(45deg);
+}
+#info-tip.below::after { top: -5px; }
+#info-tip.above::after { bottom: -5px; }

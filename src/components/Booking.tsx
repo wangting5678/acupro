@@ -99,13 +99,14 @@ export default function Booking() {
   const days = useMemo(() => {
     if (!avail) return [];
     const now = clinicNow(avail.tz || "Europe/London");
+    // Keep today (until midnight) even if every slot is already past — just show them greyed.
     return avail.days.map((d) => ({
       date: new Date(d.date + "T00:00:00"),
       slots: d.slots.map((sl) => {
         const past = d.date < now.date || (d.date === now.date && toMinLocal(sl.t) <= now.min + 60);
         return { time: sl.t, state: past ? "past" : (sl.s === "booked" ? "booked" : "available") };
       }),
-    })).filter((d) => d.slots.some((s) => s.state !== "past"));
+    }));
   }, [avail]);
 
   const go = (n: number) => setStep(n);
