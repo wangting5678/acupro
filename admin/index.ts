@@ -27,7 +27,7 @@ async function sendMail(env: Env, to: string, subject: string, html: string) {
   } catch { /* ignore */ }
 }
 // Notify patient + assigned practitioner about a booking (new or changed).
-async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "updated") {
+async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "updated", includeNote = false) {
   try {
     const r = await env.DB.prepare(
       `SELECT c.full_name, c.email AS pemail, s.title AS service, a.location_id, a.start_date, ca.notes,
@@ -43,8 +43,9 @@ async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "upd
     const clinic = CLINIC_INFO[r.location_id] || { name: "AcuPro Clinic", addr: "", phone: "" };
     const date = (r.start_date || "").slice(0, 10), time = (r.start_date || "").slice(11, 16);
     const verb = kind === "new" ? "confirmed" : "updated";
-    const pHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Dear ${r.full_name},</p><p>Your AcuPro Clinic appointment has been ${verb}:</p><p><b>${r.service || "Appointment"}</b></p><p><b>Time:</b> ${date} @ ${time}</p><p><b>Location:</b> ${clinic.name}<br>${clinic.addr}<br>${clinic.phone}</p><p>To change or cancel, reply to this email.</p><p>Thank you for choosing AcuPro Clinic.</p></div>`;
-    const dHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Hello.</p><p>Booking ${kind === "new" ? "added" : "updated"}.</p><p><b>Client:</b> ${r.full_name}<br><b>Service:</b> ${r.service || ""}<br><b>Date:</b> ${date}<br><b>Time:</b> ${time}<br><b>Location:</b> ${clinic.addr}</p></div>`;
+    const noteHtml = includeNote && r.notes ? `<p><b>Note:</b> ${r.notes}</p>` : "";
+    const pHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Dear ${r.full_name},</p><p>Your AcuPro Clinic appointment has been ${verb}:</p><p><b>${r.service || "Appointment"}</b></p><p><b>Time:</b> ${date} @ ${time}</p><p><b>Location:</b> ${clinic.name}<br>${clinic.addr}<br>${clinic.phone}</p>${noteHtml}<p>To change or cancel, reply to this email.</p><p>Thank you for choosing AcuPro Clinic.</p></div>`;
+    const dHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Hello.</p><p>Booking ${kind === "new" ? "added" : "updated"}.</p><p><b>Client:</b> ${r.full_name}<br><b>Service:</b> ${r.service || ""}<br><b>Date:</b> ${date}<br><b>Time:</b> ${time}<br><b>Location:</b> ${clinic.addr}</p>${noteHtml}</div>`;
     const jobs = [sendMail(env, r.pemail, `Your AcuPro appointment ${verb}`, pHtml)];
     if (r.demail) jobs.push(sendMail(env, r.demail, `Booking ${kind} — ${r.full_name}`, dHtml));
     await Promise.all(jobs);
@@ -156,7 +157,7 @@ export default {
     // admin creates a booking (back-fill / 补单 — any date/time allowed)
     if (url.pathname === "/api/create" && req.method === "POST") {
       const b = (await req.json()) as any;
-      const { start_date, service_id, staff_id, location_id, notes, full_name, phone, email, customer_id } = b;
+      const { start_date, service_id, staff_id, location_id, notes, full_name, phone, email, customer_id, email_note } = b;
       if (!start_date || !full_name) return json({ error: "missing fields" }, 400);
       let end = start_date;
       if (service_id) {
@@ -174,7 +175,7 @@ export default {
       }
       const appt = await env.DB.prepare("INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date) VALUES(?,?,?,?,?) RETURNING id").bind(location_id ?? null, staff_id || null, service_id ?? null, start_date, end).first<{ id: number }>();
       await env.DB.prepare("INSERT INTO customer_appointments(customer_id,appointment_id,notes) VALUES(?,?,?)").bind(cust!.id, appt!.id, notes ?? "").run();
-      ctx.waitUntil(notifyBooking(env, appt!.id, "new"));
+      ctx.waitUntil(notifyBooking(env, appt!.id, "new", !!email_note));
       return json({ ok: true });
     }
 
@@ -580,6 +581,7 @@ function openCreate(){selCust=null;custResults=[];const d=view==='day'?ymd(dayDa
     '<div class="grid2"><div class="fld"><label>Practitioner</label><select id="c_staff"><option value="">Unassigned</option>'+opt(meta.practitioners,'id','name','')+'</select></div>'+
     '<div class="fld"><label>Location</label><select id="c_loc">'+opt(meta.locations,'id','name','')+'</select></div></div>'+
     '<div class="fld"><label>Notes</label><textarea id="c_notes" rows="2"></textarea></div>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer;margin:-4px 0 4px"><input type="checkbox" id="c_emailnote" style="width:auto;margin:0"> Send this note in the confirmation email (patient &amp; practitioner)</label>'+
     '<div class="modal-actions"><span style="color:#999;font-size:.78rem;align-self:center">Back-fill: past times allowed</span><div style="display:flex;gap:8px"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="createBk()">Create</button></div></div>';
   $('#mbg').classList.add('on');
 }
@@ -592,7 +594,7 @@ function custSearch(q){clearTimeout(custTimer);const box=$('#c_sugg');if(!box)re
 function pickCust(id){const c=custResults.find(x=>x.id===id);if(!c)return;selCust=c;$('#c_name').value=c.full_name||'';$('#c_phone').value=c.phone||'';$('#c_email').value=c.email||'';$('#c_search').value=c.full_name||'';$('#c_sugg').style.display='none';renderPicked();}
 function renderPicked(){const w=$('#c_pickwrap');if(!w)return;w.innerHTML=selCust?'<div class="cust-picked"><span>✓ Linked to existing customer <b>'+esc(selCust.full_name)+'</b> (edits update their record)</span><b class="x" onclick="clearCust()">✕</b></div>':''}
 function clearCust(keepFields){selCust=null;if(!keepFields){$('#c_search').value='';}renderPicked();}
-async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_time').value+':00',service_id:+$('#c_service').value,staff_id:$('#c_staff').value?+$('#c_staff').value:null,location_id:$('#c_loc').value?+$('#c_loc').value:null,notes:$('#c_notes').value,full_name:$('#c_name').value,phone:$('#c_phone').value,email:$('#c_email').value,customer_id:selCust?selCust.id:null};
+async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_time').value+':00',service_id:+$('#c_service').value,staff_id:$('#c_staff').value?+$('#c_staff').value:null,location_id:$('#c_loc').value?+$('#c_loc').value:null,notes:$('#c_notes').value,full_name:$('#c_name').value,phone:$('#c_phone').value,email:$('#c_email').value,customer_id:selCust?selCust.id:null,email_note:$('#c_emailnote').checked};
   if(!body.full_name){alert('Enter customer name');return}
   await api('/api/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});closeM();load()}
 // ---- practitioner roster ----
