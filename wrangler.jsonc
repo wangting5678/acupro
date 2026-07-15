@@ -3,7 +3,8 @@
   "compatibility_date": "2025-05-15",
   "main": "worker/index.ts",
   "vars": {
-    "SITE_CURRENCY": "GBP"
+    "SITE_CURRENCY": "GBP",
+    "MAIL_FROM": "AcuPro Clinic <bookings@acuproclinic.uk>"
   },
   "assets": {
     "directory": "./dist",
