@@ -190,8 +190,9 @@ export default function Booking() {
                   <div className="pick">
                     {cat.items.map((s) => (
                       <button key={s.id} className={`pick-item ${service?.id === s.id ? "sel" : ""}`}
+                        data-info={(s as any).description || undefined}
                         onClick={() => { setService(s); setDate(null); setTime(null); go(2); }}>
-                        <span className="meta"><span className="name">{s.title}</span><span className="dur">{s.duration_min} min</span>{(s as any).description && <span className="dur" style={{ marginTop: 4, color: "#6a6459", lineHeight: 1.4, whiteSpace: "normal" }}>{(s as any).description}</span>}</span>
+                        <span className="meta"><span className="name">{s.title}</span><span className="dur">{s.duration_min} min</span></span>
                         <span className="price">{s.price > 0 ? `from ${cur(s.price)}` : "Enquire"}</span>
                       </button>
                     ))}
