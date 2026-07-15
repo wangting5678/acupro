@@ -581,7 +581,7 @@ function openCreate(){selCust=null;custResults=[];const d=view==='day'?ymd(dayDa
     '<div class="grid2"><div class="fld"><label>Practitioner</label><select id="c_staff"><option value="">Unassigned</option>'+opt(meta.practitioners,'id','name','')+'</select></div>'+
     '<div class="fld"><label>Location</label><select id="c_loc">'+opt(meta.locations,'id','name','')+'</select></div></div>'+
     '<div class="fld"><label>Notes</label><textarea id="c_notes" rows="2"></textarea></div>'+
-    '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer;margin:-4px 0 4px"><input type="checkbox" id="c_emailnote" style="width:auto;margin:0"> Send this note in the confirmation email (patient &amp; practitioner)</label>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer;margin:-4px 0 4px"><input type="checkbox" id="c_emailnote" checked style="width:auto;margin:0"> Send this note in the confirmation email (patient &amp; practitioner)</label>'+
     '<div class="modal-actions"><span style="color:#999;font-size:.78rem;align-self:center">Back-fill: past times allowed</span><div style="display:flex;gap:8px"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="createBk()">Create</button></div></div>';
   $('#mbg').classList.add('on');
 }

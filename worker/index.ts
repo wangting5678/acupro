@@ -32,13 +32,14 @@ async function sendMail(env: Env, to: string, subject: string, html: string) {
   } catch { /* ignore */ }
 }
 
-function patientEmailHtml(o: { name: string; service: string; date: string; time: string; clinic: { name: string; addr: string; phone: string } }) {
+function patientEmailHtml(o: { name: string; service: string; date: string; time: string; note?: string; clinic: { name: string; addr: string; phone: string } }) {
   return `<div style="font-family:Arial,sans-serif;color:#23201c;font-size:15px;line-height:1.6">
     <p>Dear ${o.name},</p>
     <p>Thank you for booking with AcuPro Clinic. Here are your appointment details:</p>
     <p><b>${o.service}</b></p>
     <p><b>Time:</b> ${o.date} @ ${o.time}</p>
     <p><b>Location:</b> ${o.clinic.name}<br>${o.clinic.addr}<br>${o.clinic.phone}</p>
+    ${o.note ? `<p><b>Note:</b> ${o.note}</p>` : ""}
     <p><b>Reschedule:</b> <a href="https://acuproclinic.co.uk/online-booking">book again</a> and add a note "replace the one on date …", or reply to this email and we'll adjust manually.</p>
     <p><b>Cancellation:</b> free up to 24 hours before — just reply "CANCEL" to this email.</p>
     <p>Thank you for choosing AcuPro Clinic.</p>
@@ -126,7 +127,7 @@ export default {
             const clinic = CLINIC_INFO[location_id as number] || { name: "AcuPro Clinic", addr: "", phone: "" };
             const serviceTitle = svc?.title || "Appointment";
             const jobs: Promise<void>[] = [
-              sendMail(env, email, "Your AcuPro Clinic appointment", patientEmailHtml({ name, service: serviceTitle, date, time, clinic })),
+              sendMail(env, email, "Your AcuPro Clinic appointment", patientEmailHtml({ name, service: serviceTitle, date, time, note: notes, clinic })),
             ];
             if (assigned) {
               const d = await env.DB.prepare("SELECT email FROM practitioners WHERE id=?").bind(assigned).first<{ email: string }>();
