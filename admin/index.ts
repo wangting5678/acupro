@@ -282,6 +282,25 @@ export default {
       return json({ ok: true });
     }
 
+    // ---- staff notes / message board (per day) ----
+    if (url.pathname === "/api/notes" && req.method === "GET") {
+      const date = url.searchParams.get("date") || "";
+      const { results } = await env.DB.prepare("SELECT id,date,author,body,created_at FROM staff_notes WHERE date=? ORDER BY created_at").bind(date).all();
+      return json({ notes: results });
+    }
+    if (url.pathname === "/api/note_add" && req.method === "POST") {
+      const { date, author, body } = (await req.json()) as any;
+      if (!date || !body || !String(body).trim()) return json({ error: "missing" }, 400);
+      const now = new Date().toISOString();
+      await env.DB.prepare("INSERT INTO staff_notes(date,author,body,created_at) VALUES(?,?,?,?)").bind(date, (author || "").trim() || "Staff", String(body).trim(), now).run();
+      return json({ ok: true });
+    }
+    if (url.pathname === "/api/note_del" && req.method === "POST") {
+      const { id } = (await req.json()) as any;
+      await env.DB.prepare("DELETE FROM staff_notes WHERE id=?").bind(id).run();
+      return json({ ok: true });
+    }
+
     // cancel = delete (no status)
     if (url.pathname === "/api/delete" && req.method === "POST") {
       const { ca_id, appointment_id } = (await req.json()) as any;
@@ -321,6 +340,28 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .av.big{width:54px;height:54px;margin-right:12px}
   /* week */
   .week{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  /* month view */
+  .monthgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px}
+  .mhead{text-align:center;font-size:.72rem;font-weight:700;color:#8a8172;text-transform:uppercase;letter-spacing:.04em;padding:4px 0}
+  .mcell{min-height:92px;border:1px solid var(--line);border-radius:10px;padding:7px 8px;cursor:pointer;background:#fff}
+  .mcell:hover{border-color:var(--pine)}
+  .mcell.out{background:#faf6ef}
+  .mcell.today{border-color:var(--pine);box-shadow:0 0 0 2px rgba(31,77,67,.12)}
+  .mnum{font-weight:700;font-size:.9rem}
+  .mcell.out .mnum{color:#c3bcae}
+  .mcount{margin-top:8px;font-size:.72rem;color:#fff;background:var(--pine);border-radius:6px;padding:2px 7px;display:inline-block}
+  /* team notes board */
+  .notesbox{background:#fff;border:1px dashed var(--pine);border-radius:10px;padding:9px 14px;margin-bottom:12px}
+  .notesbox h5{margin:0 0 6px;font-size:.75rem;color:#1f4d43;text-transform:uppercase;letter-spacing:.05em}
+  .noteitem{position:relative;padding:6px 22px 6px 0;border-bottom:1px dashed var(--line)}
+  .noteitem:last-of-type{border-bottom:0}
+  .nauthor{font-weight:700;font-size:.85rem;margin-right:8px}
+  .ntime{font-size:.72rem;color:#a9a08d}
+  .nbody{font-size:.9rem;color:#4a463f;margin-top:2px;white-space:pre-wrap}
+  .ndel{position:absolute;right:0;top:6px;background:none;border:0;color:#b0553a;cursor:pointer;font-size:.8rem}
+  .noteadd{display:flex;gap:8px;margin-top:10px}
+  .noteadd input{flex:1}
+  .noteadd .btn{padding:8px 14px;white-space:nowrap}
   .day{background:var(--card);border:1px solid var(--line);border-radius:12px;min-height:110px;padding:8px;cursor:pointer}
   .day.today{border-color:var(--pine);box-shadow:0 0 0 2px rgba(31,77,67,.12)}
   .day:hover{border-color:var(--pine)}
@@ -427,7 +468,7 @@ function fitHPX(){HPX=Math.max(30,Math.min(58,Math.floor((window.innerHeight-300
 const PAD=12; // top breathing room so the first hour label (9am) isn't hidden under the sticky header
 const COLH=()=>(END-START)*HPX+PAD+8;
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='',svcRegion='UK';
+let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='',svcRegion='UK',monthCursor=new Date(),notes=[];
 function setLocFilter(v){locFilter=v;render()}
 function locFilterCtrl(){
   const opts='<option value="">All locations</option>'+meta.locations.filter(l=>l.abbr).map(l=>'<option value="'+l.abbr+'"'+(locFilter===l.abbr?' selected':'')+'>'+esc(l.name)+'</option>').join('');
@@ -459,7 +500,22 @@ async function load(){const a=await api('/api/appointments');if(!a.ok)return log
 
 function navbtn(p,label){const fn=p==='roster'?'goRoster':p==='services'?'goServices':'goBookings';return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#1f4d43':'#fff')+';font-weight:600" onclick="'+fn+'()">'+label+'</button>'}
 function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+navbtn('services','Services')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
-function render(){if(page==='roster')return renderRoster();if(page==='services')return renderServices();view==='day'?renderDay():renderWeek()}
+function render(){if(page==='roster')return renderRoster();if(page==='services')return renderServices();if(view==='month')return renderMonth();view==='day'?renderDay():renderWeek()}
+function viewTabs(){return '<button class="nav-btn'+(view==='week'?' on':'')+'" onclick="toWeek()">Week</button><button class="nav-btn'+(view==='day'?' on':'')+'" onclick="toDayView()">Day</button><button class="nav-btn'+(view==='month'?' on':'')+'" onclick="toMonth()">Month</button>'}
+function toMonth(){view='month';monthCursor=new Date();render()}
+function mo(n){monthCursor=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+n,1);render()}
+function moToday(){monthCursor=new Date();render()}
+function renderMonth(){
+  const first=new Date(monthCursor.getFullYear(),monthCursor.getMonth(),1);
+  const gs=monday(first);const label=first.toLocaleDateString('en-GB',{month:'long',year:'numeric'});const todayS=ymd(new Date());
+  const head=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(x=>'<div class="mhead">'+x+'</div>').join('');
+  let cells='';
+  for(let i=0;i<42;i++){const d=new Date(gs);d.setDate(gs.getDate()+i);const ds=ymd(d);const inM=d.getMonth()===first.getMonth();
+    const cnt=appts.filter(a=>a.start_date&&a.start_date.slice(0,10)===ds&&apptInLoc(a)).length;
+    cells+='<div class="mcell'+(inM?'':' out')+(ds===todayS?' today':'')+'" onclick=\\'openDay("'+ds+'")\\'><div class="mnum">'+d.getDate()+'</div>'+(cnt?'<div class="mcount">'+cnt+' booking'+(cnt>1?'s':'')+'</div>':'')+'</div>';
+  }
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="mo(-1)">←</button><button class="nav-btn" onclick="moToday()">This month</button><button class="nav-btn" onclick="mo(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="monthgrid">'+head+cells+'</div>');
+}
 function goBookings(){page='bookings';render()}
 function goRoster(){page='roster';loadPrac()}
 function goServices(){page='services';loadServices()}
@@ -474,13 +530,21 @@ function renderWeek(){
     const chips=list.map(a=>'<div class="chip"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>').join('')||'<div class="empty">—</div>';
     return '<div class="day'+(ds===todayS?' today':'')+'" onclick=\\'openDay("'+ds+'")\\'><h4>'+d.toLocaleDateString('en-GB',{weekday:'short'})+'<b>'+d.getDate()+'</b></h4>'+chips+'</div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn on">Week</button><button class="nav-btn" onclick="toDayView()">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="wk(-7)">←</button><button class="nav-btn" onclick="wkToday()">This week</button><button class="nav-btn" onclick="wk(7)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="week">'+cols+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="wk(-7)">←</button><button class="nav-btn" onclick="wkToday()">This week</button><button class="nav-btn" onclick="wk(7)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="week">'+cols+'</div>');
 }
 function wk(n){cursor.setDate(cursor.getDate()+n);render()}
 function wkToday(){cursor=monday(new Date());render()}
-function openDay(ds){dayDate=new Date(ds+'T00:00:00');view='day';render()}
-function toDayView(){dayDate=new Date();view='day';render()}
+function openDay(ds){dayDate=new Date(ds+'T00:00:00');view='day';loadDayNotes()}
+function toDayView(){dayDate=new Date();view='day';loadDayNotes()}
 function toWeek(){view='week';render()}
+async function loadDayNotes(){const n=await api('/api/notes?date='+ymd(dayDate));notes=n.ok?(n.data.notes||[]):[];renderDay()}
+let noteAuthor='';
+async function addNote(){const b=$('#note_body').value.trim();if(!b)return;noteAuthor=$('#note_author').value.trim();await api('/api/note_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:ymd(dayDate),author:noteAuthor,body:b})});await loadDayNotes()}
+async function delNote(id){if(!confirm('Delete this note?'))return;await api('/api/note_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});await loadDayNotes()}
+function notesBox(){
+  const list=notes.map(n=>'<div class="noteitem"><span class="nauthor">'+esc(n.author)+'</span><span class="ntime">'+(n.created_at?new Date(n.created_at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')+'</span><button class="ndel" onclick="delNote('+n.id+')" title="Delete">✕</button><div class="nbody">'+esc(n.body)+'</div></div>').join('')||'<div style="color:#7a7266;font-size:.82rem">No notes yet — leave a message for colleagues about this day.</div>';
+  return '<div class="notesbox"><h5>📌 Team notes — '+dayDate.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+'</h5><div class="notelist">'+list+'</div><div class="noteadd"><input id="note_author" placeholder="Your name" value="'+esc(noteAuthor)+'" style="max-width:150px"><input id="note_body" placeholder="Leave a note for this day…" onkeydown="if(event.key===\\'Enter\\')addNote()"><button class="btn" onclick="addNote()">Post</button></div></div>';
+}
 
 function renderDay(){
   fitHPX();
@@ -517,10 +581,10 @@ function renderDay(){
   }).join('');
   const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
   const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#c98a3f')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
-  $('#app').innerHTML=shell('<div class="toolbar"><button class="nav-btn" onclick="toWeek()">Week</button><button class="nav-btn on">Day</button><span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+unHtml+legend+'<div class="daygrid">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
 }
-function dy(n){dayDate.setDate(dayDate.getDate()+n);render()}
-function dyToday(){dayDate=new Date();render()}
+function dy(n){dayDate.setDate(dayDate.getDate()+n);loadDayNotes()}
+function dyToday(){dayDate=new Date();loadDayNotes()}
 // hover empty column → show time; click empty → new booking prefilled with this practitioner + time
 function hm12(m){let h=Math.floor(m/60);const mm=m%60,ap=h<12?'am':'pm';h=(h%12)||12;return h+':'+String(mm).padStart(2,'0')+' '+ap}
 function snapMin(e,body){const rect=body.getBoundingClientRect();let m=START*60+Math.round(((e.clientY-rect.top-PAD)/HPX*60)/15)*15;return Math.max(START*60,Math.min(m,END*60-15))}
