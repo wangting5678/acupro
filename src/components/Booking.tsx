@@ -78,15 +78,23 @@ export default function Booking() {
     return filtered.length ? filtered : all;
   }, [locationId, d1svc]);
 
-  const slots = useMemo(() => {
-    if (!service || !date) return [];
-    let list = slotsForDate(service, date, { locationId });
-    if (isSameDay(date, new Date())) {
-      const now = nowHHMM();
-      list = list.filter((s) => s.time > now); // no past times today
+  // Multi-day grid: each working day with availability becomes a column of time slots.
+  const days = useMemo(() => {
+    if (!service) return [];
+    const now = nowHHMM();
+    const today = new Date();
+    const out: { date: Date; slots: { time: string; past: boolean }[] }[] = [];
+    for (const d of nextDays(28)) {
+      const list = slotsForDate(service, d, { locationId });
+      if (!list.length) continue;
+      const isToday = isSameDay(d, today);
+      const slots = list.map((s) => ({ time: s.time, past: isToday && s.time <= now }));
+      if (slots.every((s) => s.past)) continue; // skip a fully-past today
+      out.push({ date: d, slots });
+      if (out.length >= 10) break;
     }
-    return list;
-  }, [service, date, locationId]);
+    return out;
+  }, [service, locationId]);
 
   const go = (n: number) => setStep(n);
 
@@ -181,35 +189,41 @@ export default function Booking() {
             </div>
           )}
 
-          {/* Step 2: Date + time */}
+          {/* Step 2: Date + time — multi-day grid */}
           {step === 2 && service && (
             <div>
-              <h3 style={{ marginBottom: 12 }}>Pick a date</h3>
-              <div className="date-row">
-                {nextDays(14).map((d) => (
-                  <button key={d.toISOString()} className={`date-chip ${date && isSameDay(date, d) ? "sel" : ""}`}
-                    onClick={() => { setDate(d); setTime(null); }}>
-                    <div className="dow">{d.toLocaleDateString("en-GB", { weekday: "short" })}</div>
-                    <div className="dnum">{d.getDate()}</div>
-                    <div className="dow">{d.toLocaleDateString("en-GB", { month: "short" })}</div>
-                  </button>
-                ))}
-              </div>
-              {date && (
-                <>
-                  <h3 style={{ margin: "24px 0 12px" }}>Available times — {fmtDate(date)}</h3>
-                  {slots.length ? (
-                    <div className="slot-grid">
-                      {slots.map((sl) => (
-                        <div key={sl.time} className={`slot ${time === sl.time ? "sel" : ""}`} onClick={() => setTime(sl.time)}>{sl.time}</div>
-                      ))}
+              <h3 style={{ marginBottom: 4 }}>Choose a time</h3>
+              <p className="muted" style={{ margin: "0 0 14px" }}>Pick any available slot across the next available days.</p>
+              {days.length ? (
+                <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8 }}>
+                  {days.map(({ date: d, slots }) => (
+                    <div key={d.toISOString()} style={{ minWidth: 122, flex: "0 0 122px" }}>
+                      <div style={{ background: "var(--pine)", color: "#fff", fontWeight: 700, fontSize: ".85rem", textAlign: "center", padding: "9px 6px", borderRadius: "10px 10px 0 0" }}>
+                        {d.toLocaleDateString("en-GB", { weekday: "short" })}, {d.toLocaleDateString("en-GB", { month: "short", day: "numeric" })}
+                      </div>
+                      <div style={{ maxHeight: 380, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, padding: 8, border: "1px solid var(--line, #e5ddcf)", borderTop: "none", borderRadius: "0 0 10px 10px" }}>
+                        {slots.map((sl) => {
+                          const sel = !!date && isSameDay(date, d) && time === sl.time;
+                          if (sl.past) {
+                            return <div key={sl.time} style={{ padding: "8px", borderRadius: 8, textAlign: "center", fontSize: ".85rem", color: "#c3bcae", textDecoration: "line-through", background: "#f6f2ea" }}>{sl.time}</div>;
+                          }
+                          return (
+                            <button key={sl.time} onClick={() => { setDate(d); setTime(sl.time); }}
+                              style={{ padding: "8px", borderRadius: 8, textAlign: "center", fontSize: ".85rem", cursor: "pointer",
+                                border: sel ? "1px solid var(--pine)" : "1px solid var(--line, #e5ddcf)",
+                                background: sel ? "var(--pine)" : "#fff", color: sel ? "#fff" : "var(--ink, #23201c)", fontWeight: sel ? 700 : 400 }}>
+                              {sl.time}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  ) : (
-                    <p className="muted">No available times on this day — please try another date.</p>
-                  )}
-                </>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No available times in the coming weeks — please contact us on WhatsApp.</p>
               )}
-              <div style={{ display: "flex", gap: 12, marginTop: 26 }}>
+              <div style={{ display: "flex", gap: 12, marginTop: 22 }}>
                 <button className="btn btn-ghost" onClick={() => go(1)}>← Back</button>
                 <button className="btn btn-primary" disabled={!time} onClick={() => go(3)}>Continue →</button>
               </div>
