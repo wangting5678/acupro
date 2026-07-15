@@ -61,7 +61,7 @@ export default function Booking() {
           ...c,
           items: c.items.filter((s) => d1svc.has(s.id)).map((s) => {
             const o = d1svc.get(s.id)!;
-            return { ...s, title: o.title, price: o.price, duration_min: o.duration_min };
+            return { ...s, title: o.title, price: o.price, duration_min: o.duration_min, description: o.description || "" };
           }),
         }))
         .filter((c) => c.items.length);
@@ -69,7 +69,7 @@ export default function Booking() {
       const known = new Set(all.flatMap((c) => c.items.map((i) => i.id)));
       const extras = [...d1svc.values()].filter((o) => !known.has(Number(o.id)));
       if (extras.length) {
-        all = [...all, { id: -1, name: "Treatments", items: extras.map((o) => ({ id: Number(o.id), title: o.title, price: o.price, duration_min: o.duration_min, category_id: -1 })) }];
+        all = [...all, { id: -1, name: "Treatments", items: extras.map((o) => ({ id: Number(o.id), title: o.title, price: o.price, duration_min: o.duration_min, category_id: -1, description: o.description || "" })) }];
       }
     }
     if (locationId == null) return all;
@@ -170,7 +170,7 @@ export default function Booking() {
                     {cat.items.map((s) => (
                       <button key={s.id} className={`pick-item ${service?.id === s.id ? "sel" : ""}`}
                         onClick={() => { setService(s); setDate(null); setTime(null); go(2); }}>
-                        <span className="meta"><span className="name">{s.title}</span><span className="dur">{s.duration_min} min</span></span>
+                        <span className="meta"><span className="name">{s.title}</span><span className="dur">{s.duration_min} min</span>{(s as any).description && <span className="dur" style={{ marginTop: 4, color: "#6a6459", lineHeight: 1.4, whiteSpace: "normal" }}>{(s as any).description}</span>}</span>
                         <span className="price">{s.price > 0 ? `from ${cur(s.price)}` : "Enquire"}</span>
                       </button>
                     ))}

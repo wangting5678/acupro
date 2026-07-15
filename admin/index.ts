@@ -240,21 +240,22 @@ export default {
 
     // ---- service catalogue CRUD (title / price / duration / colour) ----
     if (url.pathname === "/api/services" && req.method === "GET") {
-      const { results } = await env.DB.prepare("SELECT id,title,price,duration_min,color,visibility FROM services ORDER BY title").all();
+      const { results } = await env.DB.prepare("SELECT id,title,price,duration_min,color,visibility,description,region FROM services ORDER BY title").all();
       return json({ services: results });
     }
     if (url.pathname === "/api/service_save" && req.method === "POST") {
-      const { id, title, price, duration_min, color, visibility } = (await req.json()) as any;
+      const { id, title, price, duration_min, color, visibility, description, region } = (await req.json()) as any;
       if (!title) return json({ error: "title required" }, 400);
       const vis = visibility === "private" ? "private" : "public";
+      const reg = region === "UAE" ? "UAE" : "UK";
       if (id) {
-        await env.DB.prepare("UPDATE services SET title=?, price=?, duration_min=?, color=?, visibility=? WHERE id=?")
-          .bind(title, price ?? 0, duration_min ?? 60, color ?? null, vis, id).run();
+        await env.DB.prepare("UPDATE services SET title=?, price=?, duration_min=?, color=?, visibility=?, description=?, region=? WHERE id=?")
+          .bind(title, price ?? 0, duration_min ?? 60, color ?? null, vis, description ?? "", reg, id).run();
         return json({ ok: true, id });
       }
       const mx = await env.DB.prepare("SELECT COALESCE(MAX(id),0)+1 AS nid FROM services").first<{ nid: number }>();
-      await env.DB.prepare("INSERT INTO services(id,title,price,duration_min,color,visibility) VALUES(?,?,?,?,?,?)")
-        .bind(mx!.nid, title, price ?? 0, duration_min ?? 60, color ?? null, vis).run();
+      await env.DB.prepare("INSERT INTO services(id,title,price,duration_min,color,visibility,description,region) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(mx!.nid, title, price ?? 0, duration_min ?? 60, color ?? null, vis, description ?? "", reg).run();
       return json({ ok: true, id: mx!.nid });
     }
     if (url.pathname === "/api/service_delete" && req.method === "POST") {
@@ -350,7 +351,13 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .legend .lg{display:inline-flex;align-items:center;gap:5px}
   .legend .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
   /* services table */
-  .svcrow{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line)}
+  .svcrow{display:flex;align-items:center;gap:10px;padding:9px 14px}
+  .svcitem{border-bottom:1px solid var(--line)}
+  .svcdesc{padding:0 14px 11px 62px}
+  .svcdesc textarea{width:100%;min-height:38px;font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;resize:vertical;color:#4a463f}
+  .svcdesc label{display:block;font-size:.68rem;font-weight:700;color:#8a8172;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+  .regtgl{border:1px solid var(--line);background:#fff;color:#7a7266;border-radius:999px;padding:7px 16px;font-size:.85rem;font-weight:700;cursor:pointer}
+  .regtgl.on{background:var(--pine);color:#fff;border-color:var(--pine)}
   .svcrow:last-child{border-bottom:0}
   .svcrow input[type=color]{width:38px;height:34px;padding:2px;cursor:pointer}
   .svcrow .st{flex:1;max-width:320px}
@@ -416,9 +423,10 @@ const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
 const START=9,END=21; let HPX=60; // 9am-9pm; HPX (px/hour) is recomputed per render to fit one screen
 function fitHPX(){HPX=Math.max(30,Math.min(58,Math.floor((window.innerHeight-300)/(END-START))))}
-const COLH=()=>(END-START)*HPX;
+const PAD=12; // top breathing room so the first hour label (9am) isn't hidden under the sticky header
+const COLH=()=>(END-START)*HPX+PAD+8;
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='';
+let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='',svcRegion='UK';
 function setLocFilter(v){locFilter=v;render()}
 function locFilterCtrl(){
   const opts='<option value="">All locations</option>'+meta.locations.filter(l=>l.abbr).map(l=>'<option value="'+l.abbr+'"'+(locFilter===l.abbr?' selected':'')+'>'+esc(l.name)+'</option>').join('');
@@ -485,18 +493,18 @@ function renderDay(){
     (un.map(a=>'<span class="uchip" draggable="true" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')">'+a.start_date.slice(11,16)+' '+esc(a.full_name)+cbadge(a.loc_abbr)+'</span>').join('')||'<span style="color:#7a7266;font-size:.82rem">✅ No unassigned bookings right now. &nbsp;📧 Email notifications: up to <b>100/day · 3,000/month</b> (Resend free tier).</span>')+'</div>';
   // gutter
   let gutter='<div class="col gutter"><div class="colhead"></div><div class="colbody" style="height:'+COLH()+'px">';
-  for(let h=START;h<=END;h++){gutter+='<div class="hourlabel" style="top:'+((h-START)*HPX)+'px">'+((h%12)||12)+(h<12?'am':'pm')+'</div>'}
+  for(let h=START;h<=END;h++){gutter+='<div class="hourlabel" style="top:'+(PAD+(h-START)*HPX)+'px">'+((h%12)||12)+(h<12?'am':'pm')+'</div>'}
   gutter+='</div></div>';
   const dow=curDow();
   const body=cols.map(p=>{
     const items=list.filter(a=>String(a.staff_id)===String(p.id));
-    let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+((h-START)*HPX)+'px"></div>'}
+    let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+(PAD+(h-START)*HPX)+'px"></div>'}
     const whs=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date&&h.dow===dow);
-    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);return '<div class="whblock" style="top:'+top+'px;height:'+hgt+'px" title="Working hours '+h.start_time+'–'+h.end_time+' — edit in Practitioners"><span>'+h.start_time+'–'+h.end_time+'</span></div>'}).join('');
+    const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=PAD+(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);return '<div class="whblock" style="top:'+top+'px;height:'+hgt+'px" title="Working hours '+h.start_time+'–'+h.end_time+' — edit in Practitioners"><span>'+h.start_time+'–'+h.end_time+'</span></div>'}).join('');
     const laid=layoutLanes(items);
     const blocks=laid.map(a=>{
       const sm=mins(a.start_date), dur=a.duration_min||60;
-      const top=(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,22);
+      const top=PAD+(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,22);
       const w=100/a._lanes, left=a._lane*w;
       const col=svcColor[a.service_id]||'#c98a3f';
       const style='top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px);background:'+rgba(col,.22)+';border-color:'+rgba(col,.5)+';border-left:3px solid '+col;
@@ -532,7 +540,7 @@ function dDrop(e,pid){e.preventDefault();e.currentTarget.classList.remove('drop-
     openMoveConfirm(a,'Unassigned','—');return;
   }
   const bodyEl=e.currentTarget.querySelector('.colbody');const rect=bodyEl.getBoundingClientRect();
-  let m=START*60+Math.round(((e.clientY-rect.top-gy)/HPX*60)/15)*15; m=Math.max(START*60,Math.min(m,END*60-15));
+  let m=START*60+Math.round(((e.clientY-rect.top-gy-PAD)/HPX*60)/15)*15; m=Math.max(START*60,Math.min(m,END*60-15));
   const hm=String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
   const prac=meta.practitioners.find(p=>String(p.id)===String(pid));
   pendingMove={kind:'move',appointment_id:a.appointment_id,staff_id:pid,start_date:ymd(dayDate)+' '+hm+':00'};
@@ -654,19 +662,22 @@ function openServices(pid){const p=pracList.find(x=>x.id===pid);if(!p)return;
 async function toggleSvc(pid,sid,on){const p=pracList.find(x=>x.id===pid);const set=new Set((p.services||'').split(',').map(s=>s.trim()).filter(Boolean));on?set.add(String(sid)):set.delete(String(sid));p.services=meta.services.filter(s=>set.has(String(s.id))).map(s=>s.id).join(',');await saveP(ppayload(p))}
 // ---- services catalogue page ----
 async function loadServices(){const {ok,data}=await api('/api/services');if(!ok)return loginView('');svcList=data.services||[];meta.services=svcList;renderServices()}
-function spayload(s){return {id:s.id,title:s.title,price:s.price,duration_min:s.duration_min,color:s.color,visibility:s.visibility||'public'}}
+function spayload(s){return {id:s.id,title:s.title,price:s.price,duration_min:s.duration_min,color:s.color,visibility:s.visibility||'public',description:s.description||'',region:s.region||'UK'}}
 function visBtn(s){const pub=s.visibility!=='private';return '<button class="vistgl '+(pub?'pub':'prv')+'" onclick="svcVis('+s.id+')" title="'+(pub?'Bookable on the public site':'Admin-only — hidden from the public booking page')+'">'+(pub?'🌐 Public':'🔒 Private')+'</button>'}
+function setSvcRegion(r){svcRegion=r;renderServices()}
 function renderServices(){
-  const sym='£'; // UK catalogue base price is in GBP; each public site shows its own currency
+  const sym=svcRegion==='UAE'?'AED':'£';
+  const list=svcList.filter(s=>(s.region||'UK')===svcRegion);
+  const regBar='<div style="display:flex;align-items:center;gap:8px;margin:0 0 14px"><span style="font-size:.85rem;color:#7a7266;font-weight:600">Catalogue:</span><button class="regtgl'+(svcRegion==='UK'?' on':'')+'" onclick="setSvcRegion(\\'UK\\')">🇬🇧 UK (£)</button><button class="regtgl'+(svcRegion==='UAE'?' on':'')+'" onclick="setSvcRegion(\\'UAE\\')">🇦🇪 UAE (AED)</button></div>';
   const head='<div class="svchead"><span style="width:38px"></span><span style="flex:1;max-width:320px">Service</span><span style="width:104px">Price ('+sym+')</span><span style="width:110px">Duration</span><span style="width:118px">Visibility</span><span style="flex:1"></span></div>';
-  const rows=svcList.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><div class="nf"><span>'+sym+'</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('');
-  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 12px">Each service has a <b>colour</b> (shades its bookings on the day view), a <b>price (£, UK base)</b> and a <b>duration in minutes</b>. <b>Visibility:</b> 🌐 Public = shown on the public booking page; 🔒 Private = admin-only (staff can still book it here, patients can’t). The public booking page reads this list (title, price, duration); each site shows its own currency (UK £, UAE AED). Changes save automatically.</p><div class="rosterbox">'+head+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5" title="Colour"><input id="ns_title" placeholder="New service name" style="flex:1;max-width:280px"><div class="nf"><span>'+sym+'</span><input id="ns_price" type="number" placeholder="0" min="0" style="width:80px"></div><div class="nf"><input id="ns_dur" type="number" placeholder="60" value="60" min="5" step="5" style="width:80px"><span>min</span></div><button class="btn" onclick="svcAdd()">+ Add</button></div>');
+  const rows=list.map(s=>'<div class="svcitem"><div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><input class="st" value="'+esc(s.title)+'" onchange="svcSet('+s.id+',\\'title\\',this.value)"><div class="nf"><span>'+sym+'</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div><div class="svcdesc"><label>Information — shown to patients on the booking page</label><textarea placeholder="Describe what this service is for…" onchange="svcSet('+s.id+',\\'description\\',this.value)">'+esc(s.description||'')+'</textarea></div></div>').join('')||'<div style="padding:24px;color:#7a7266">No services in the '+svcRegion+' catalogue yet — add one below.</div>';
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 12px">Two independent catalogues — <b>UK</b> and <b>UAE</b> — each with its own services, prices (UK in £, UAE in AED — unrelated numbers), descriptions and visibility. Each public site reads its own catalogue. <b>Visibility:</b> 🌐 Public = on the booking page; 🔒 Private = admin-only. Changes save automatically.</p>'+regBar+'<div class="rosterbox">'+head+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5" title="Colour"><input id="ns_title" placeholder="New '+svcRegion+' service name" style="flex:1;max-width:280px"><div class="nf"><span>'+sym+'</span><input id="ns_price" type="number" placeholder="0" min="0" style="width:80px"></div><div class="nf"><input id="ns_dur" type="number" placeholder="60" value="60" min="5" step="5" style="width:80px"><span>min</span></div><button class="btn" onclick="svcAdd()">+ Add to '+svcRegion+'</button></div>');
 }
 async function svcSave(s){await api('/api/service_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)})}
 async function svcSet(id,k,v){const s=svcList.find(x=>x.id===id);s[k]=(k==='price'||k==='duration_min')?+v:v;await svcSave(spayload(s))}
 async function svcVis(id){const s=svcList.find(x=>x.id===id);s.visibility=s.visibility==='private'?'public':'private';await svcSave(spayload(s));renderServices()}
 async function svcDel(id){if(!confirm('Delete this service? Existing bookings keep their time but lose the service label.'))return;await api('/api/service_delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadServices()}
-async function svcAdd(){const t=$('#ns_title').value.trim();if(!t){alert('Enter a name');return}await svcSave({title:t,price:+$('#ns_price').value||0,duration_min:+$('#ns_dur').value||60,color:$('#ns_color').value,visibility:'public'});loadServices()}
+async function svcAdd(){const t=$('#ns_title').value.trim();if(!t){alert('Enter a name');return}await svcSave({title:t,price:+$('#ns_price').value||0,duration_min:+$('#ns_dur').value||60,color:$('#ns_color').value,visibility:'public',description:'',region:svcRegion});loadServices()}
 async function logout(){await fetch('/api/logout');loginView('')}
 boot();
 </script></body></html>`;

@@ -61,11 +61,12 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Public service catalogue — only services marked visible to patients.
+    // Public service catalogue — this site's region, only services visible to patients.
     if (url.pathname === "/api/services" && request.method === "GET") {
+      const region = env.SITE_CURRENCY === "AED" ? "UAE" : "UK";
       const { results } = await env.DB.prepare(
-        "SELECT id,title,price,duration_min FROM services WHERE COALESCE(visibility,'public')='public' ORDER BY title",
-      ).all();
+        "SELECT id,title,price,duration_min,description FROM services WHERE COALESCE(visibility,'public')='public' AND COALESCE(region,'UK')=? ORDER BY title",
+      ).bind(region).all();
       return json({ services: results, currency: env.SITE_CURRENCY === "AED" ? "AED" : "GBP" });
     }
 
