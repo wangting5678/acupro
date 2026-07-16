@@ -6,6 +6,7 @@ export interface Env {
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
   SITE_CURRENCY?: string; // per-site display currency: "GBP" (UK) | "AED" (UAE)
+  PUBLIC_URL?: string; // public site base for cancel links, e.g. https://acuproclinic.co.uk
 }
 
 const json = (data: unknown, status = 200) =>
@@ -32,7 +33,7 @@ async function sendMail(env: Env, to: string, subject: string, html: string) {
   } catch { /* ignore */ }
 }
 
-function patientEmailHtml(o: { name: string; service: string; date: string; time: string; note?: string; clinic: { name: string; addr: string; phone: string } }) {
+function patientEmailHtml(o: { name: string; service: string; date: string; time: string; note?: string; cancelUrl?: string; clinic: { name: string; addr: string; phone: string } }) {
   return `<div style="font-family:Arial,sans-serif;color:#23201c;font-size:15px;line-height:1.6">
     <p>Dear ${o.name},</p>
     <p>Thank you for booking with AcuPro Clinic. Here are your appointment details:</p>
@@ -40,10 +41,17 @@ function patientEmailHtml(o: { name: string; service: string; date: string; time
     <p><b>Time:</b> ${o.date} @ ${o.time}</p>
     <p><b>Location:</b> ${o.clinic.name}<br>${o.clinic.addr}<br>${o.clinic.phone}</p>
     ${o.note ? `<p><b>Note:</b> ${o.note}</p>` : ""}
-    <p><b>Reschedule:</b> <a href="https://acuproclinic.co.uk/online-booking">book again</a> and add a note "replace the one on date …", or reply to this email and we'll adjust manually.</p>
-    <p><b>Cancellation:</b> free up to 24 hours before — just reply "CANCEL" to this email.</p>
+    ${o.cancelUrl ? `<p style="margin:18px 0"><a href="${o.cancelUrl}" style="background:#1f4d43;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-weight:600">View or cancel my appointment</a></p><p style="font-size:13px;color:#777">To reschedule, cancel here and book a new time. Cancellations are free up to 24 hours before.</p>` : ""}
     <p>Thank you for choosing AcuPro Clinic.</p>
     <hr><p style="font-size:13px;color:#777">Head Office: +44 (0)20 3239 7888<br>City Branch: 33-34 Bury St, London, EC3A 5AR<br>Victoria Branch: 10 Buckingham Palace Rd, London, SW1W 0QP</p>
+  </div>`;
+}
+function cancelledEmailHtml(who: "patient" | "doctor", o: { name: string; service: string; date: string; time: string; clinic: string }) {
+  return `<div style="font-family:Arial,sans-serif;color:#23201c;font-size:15px;line-height:1.6">
+    <p>${who === "patient" ? "Dear " + o.name + "," : "Hello."}</p>
+    <p>The following appointment has been <b>cancelled</b>:</p>
+    <p><b>${o.service}</b><br><b>Time:</b> ${o.date} @ ${o.time}<br><b>Location:</b> ${o.clinic}${who === "doctor" ? "<br><b>Client:</b> " + o.name : ""}</p>
+    ${who === "patient" ? `<p>Booked in error or want a different time? <a href="https://acuproclinic.co.uk/book">Book again</a>. We hope to see you soon.</p>` : ""}
   </div>`;
 }
 function doctorEmailHtml(o: { name: string; service: string; note: string; date: string; time: string; addr: string }) {
@@ -126,6 +134,53 @@ export default {
       return json({ days, tz: TZ, currency: env.SITE_CURRENCY === "AED" ? "AED" : "GBP" });
     }
 
+    // Look up a booking by its cancel token (for the self-service cancel page).
+    if (url.pathname === "/api/booking" && request.method === "GET") {
+      const t = url.searchParams.get("t") || "";
+      if (!t) return json({ error: "missing token" }, 400);
+      const r = await env.DB.prepare(
+        `SELECT a.location_id, a.start_date, s.title AS service, c.full_name
+         FROM appointments a
+         LEFT JOIN services s ON s.id=a.service_id
+         JOIN customer_appointments ca ON ca.appointment_id=a.id
+         JOIN customers c ON c.id=ca.customer_id
+         WHERE a.cancel_token=? LIMIT 1`,
+      ).bind(t).first<any>();
+      if (!r) return json({ found: false });
+      const clinic = CLINIC_INFO[r.location_id] || { name: "AcuPro Clinic", addr: "", phone: "" };
+      return json({ found: true, name: r.full_name, service: r.service || "Appointment", date: (r.start_date || "").slice(0, 10), time: (r.start_date || "").slice(11, 16), clinic: clinic.name, addr: clinic.addr });
+    }
+
+    // Patient self-service cancel (no login — the token from their email proves ownership).
+    if (url.pathname === "/api/cancel" && request.method === "POST") {
+      const { t } = (await request.json()) as any;
+      if (!t) return json({ error: "missing token" }, 400);
+      const r = await env.DB.prepare(
+        `SELECT a.id AS appt_id, a.location_id, a.start_date, s.title AS service,
+                ca.id AS ca_id, c.email AS pemail, c.full_name, p.email AS demail
+         FROM appointments a
+         JOIN customer_appointments ca ON ca.appointment_id=a.id
+         JOIN customers c ON c.id=ca.customer_id
+         LEFT JOIN services s ON s.id=a.service_id
+         LEFT JOIN practitioners p ON p.id=a.staff_id
+         WHERE a.cancel_token=? LIMIT 1`,
+      ).bind(t).first<any>();
+      if (!r) return json({ found: false });
+      await env.DB.prepare("DELETE FROM customer_appointments WHERE id=?").bind(r.ca_id).run();
+      await env.DB.prepare("DELETE FROM appointments WHERE id=?").bind(r.appt_id).run();
+      ctx.waitUntil((async () => {
+        try {
+          const clinic = CLINIC_INFO[r.location_id] || { name: "AcuPro Clinic", addr: "", phone: "" };
+          const date = (r.start_date || "").slice(0, 10), time = (r.start_date || "").slice(11, 16);
+          const jobs: Promise<void>[] = [];
+          if (r.pemail) jobs.push(sendMail(env, r.pemail, "Your AcuPro appointment is cancelled", cancelledEmailHtml("patient", { name: r.full_name, service: r.service || "Appointment", date, time, clinic: clinic.name })));
+          if (r.demail) jobs.push(sendMail(env, r.demail, "Cancelled — " + r.full_name, cancelledEmailHtml("doctor", { name: r.full_name, service: r.service || "Appointment", date, time, clinic: clinic.name })));
+          await Promise.all(jobs);
+        } catch { /* ignore */ }
+      })());
+      return json({ ok: true });
+    }
+
     if (url.pathname === "/api/book" && request.method === "POST") {
       try {
         const b = (await request.json()) as any;
@@ -168,10 +223,12 @@ export default {
           "INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id",
         ).bind(name, phone ?? null, email).first<{ id: number }>();
 
+        const token = crypto.randomUUID();
         const appt = await env.DB.prepare(
-          "INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date) VALUES(?,?,?,?,?) RETURNING id",
-        ).bind(location_id ?? null, assigned, service_id, start, end)
+          "INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date,cancel_token) VALUES(?,?,?,?,?,?) RETURNING id",
+        ).bind(location_id ?? null, assigned, service_id, start, end, token)
           .first<{ id: number }>();
+        const cancelUrl = `${env.PUBLIC_URL || url.origin}/cancel?t=${token}`;
 
         await env.DB.prepare(
           "INSERT INTO customer_appointments(customer_id,appointment_id,status,notes) VALUES(?,?,?,?)",
@@ -184,7 +241,7 @@ export default {
             const clinic = CLINIC_INFO[location_id as number] || { name: "AcuPro Clinic", addr: "", phone: "" };
             const serviceTitle = svc?.title || "Appointment";
             const jobs: Promise<void>[] = [
-              sendMail(env, email, "Your AcuPro Clinic appointment", patientEmailHtml({ name, service: serviceTitle, date, time, note: notes, clinic })),
+              sendMail(env, email, "Your AcuPro Clinic appointment", patientEmailHtml({ name, service: serviceTitle, date, time, note: notes, cancelUrl, clinic })),
             ];
             if (assigned) {
               const d = await env.DB.prepare("SELECT email FROM practitioners WHERE id=?").bind(assigned).first<{ email: string }>();

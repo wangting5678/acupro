@@ -4,7 +4,8 @@
   "main": "index.ts",
   "vars": {
     "ADMIN_PASSWORD": "acupro2026",
-    "MAIL_FROM": "AcuPro Clinic <bookings@acuproclinic.uk>"
+    "MAIL_FROM": "AcuPro Clinic <bookings@acuproclinic.uk>",
+    "PUBLIC_URL": "https://acupro-uk.jinzhiqi19860716.workers.dev"
   },
   "d1_databases": [
     {

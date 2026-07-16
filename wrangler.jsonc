@@ -4,7 +4,8 @@
   "main": "worker/index.ts",
   "vars": {
     "SITE_CURRENCY": "GBP",
-    "MAIL_FROM": "AcuPro Clinic <bookings@acuproclinic.uk>"
+    "MAIL_FROM": "AcuPro Clinic <bookings@acuproclinic.uk>",
+    "PUBLIC_URL": "https://acupro-uk.jinzhiqi19860716.workers.dev"
   },
   "assets": {
     "directory": "./dist",

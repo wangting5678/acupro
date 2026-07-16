@@ -1,0 +1,16 @@
+---
+import Base from "../layouts/Base.astro";
+import Cancel from "../components/Cancel.tsx";
+---
+
+<Base title="Manage your appointment | AcuPro Clinic" description="View or cancel your AcuPro Clinic appointment." canonicalPath="/cancel">
+  <section class="section">
+    <div class="container">
+      <div class="center" style="margin-bottom:30px">
+        <div class="eyebrow">Manage your appointment</div>
+        <h2>View or cancel</h2>
+      </div>
+      <Cancel client:load />
+    </div>
+  </section>
+</Base>

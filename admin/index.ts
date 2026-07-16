@@ -5,6 +5,7 @@ export interface Env {
   ADMIN_PASSWORD: string;
   RESEND_API_KEY?: string;
   MAIL_FROM?: string;
+  PUBLIC_URL?: string; // public site base for patient cancel links
 }
 
 const json = (d: unknown, s = 200, headers: Record<string, string> = {}) =>
@@ -31,7 +32,7 @@ async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "upd
   try {
     const r = await env.DB.prepare(
       `SELECT c.full_name, c.email AS pemail, s.title AS service, a.location_id, a.start_date, ca.notes,
-              p.email AS demail
+              p.email AS demail, a.cancel_token
        FROM appointments a
        JOIN customer_appointments ca ON ca.appointment_id=a.id
        JOIN customers c ON c.id=ca.customer_id
@@ -44,7 +45,9 @@ async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "upd
     const date = (r.start_date || "").slice(0, 10), time = (r.start_date || "").slice(11, 16);
     const verb = kind === "new" ? "confirmed" : "updated";
     const noteHtml = includeNote && r.notes ? `<p><b>Note:</b> ${r.notes}</p>` : "";
-    const pHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Dear ${r.full_name},</p><p>Your AcuPro Clinic appointment has been ${verb}:</p><p><b>${r.service || "Appointment"}</b></p><p><b>Time:</b> ${date} @ ${time}</p><p><b>Location:</b> ${clinic.name}<br>${clinic.addr}<br>${clinic.phone}</p>${noteHtml}<p>To change or cancel, reply to this email.</p><p>Thank you for choosing AcuPro Clinic.</p></div>`;
+    const cancelUrl = r.cancel_token ? `${env.PUBLIC_URL || "https://acupro-uk.jinzhiqi19860716.workers.dev"}/cancel?t=${r.cancel_token}` : "";
+    const cancelHtml = cancelUrl ? `<p style="margin:16px 0"><a href="${cancelUrl}" style="background:#1f4d43;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;font-weight:600">View or cancel my appointment</a></p>` : "";
+    const pHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Dear ${r.full_name},</p><p>Your AcuPro Clinic appointment has been ${verb}:</p><p><b>${r.service || "Appointment"}</b></p><p><b>Time:</b> ${date} @ ${time}</p><p><b>Location:</b> ${clinic.name}<br>${clinic.addr}<br>${clinic.phone}</p>${noteHtml}${cancelHtml}<p>Thank you for choosing AcuPro Clinic.</p></div>`;
     const dHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Hello.</p><p>Booking ${kind === "new" ? "added" : "updated"}.</p><p><b>Client:</b> ${r.full_name}<br><b>Service:</b> ${r.service || ""}<br><b>Date:</b> ${date}<br><b>Time:</b> ${time}<br><b>Location:</b> ${clinic.addr}</p>${noteHtml}</div>`;
     const jobs = [sendMail(env, r.pemail, `Your AcuPro appointment ${verb}`, pHtml)];
     if (r.demail) jobs.push(sendMail(env, r.demail, `Booking ${kind} — ${r.full_name}`, dHtml));
@@ -173,7 +176,7 @@ export default {
       } else {
         cust = await env.DB.prepare("INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id").bind(full_name, phone ?? "", email ?? "").first<{ id: number }>();
       }
-      const appt = await env.DB.prepare("INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date) VALUES(?,?,?,?,?) RETURNING id").bind(location_id ?? null, staff_id || null, service_id ?? null, start_date, end).first<{ id: number }>();
+      const appt = await env.DB.prepare("INSERT INTO appointments(location_id,staff_id,service_id,start_date,end_date,cancel_token) VALUES(?,?,?,?,?,?) RETURNING id").bind(location_id ?? null, staff_id || null, service_id ?? null, start_date, end, crypto.randomUUID()).first<{ id: number }>();
       await env.DB.prepare("INSERT INTO customer_appointments(customer_id,appointment_id,notes) VALUES(?,?,?)").bind(cust!.id, appt!.id, notes ?? "").run();
       ctx.waitUntil(notifyBooking(env, appt!.id, "new", !!email_note));
       return json({ ok: true });
