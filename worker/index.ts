@@ -7,6 +7,7 @@ export interface Env {
   MAIL_FROM?: string;
   SITE_CURRENCY?: string; // per-site display currency: "GBP" (UK) | "AED" (UAE)
   PUBLIC_URL?: string; // public site base for cancel links, e.g. https://acuproclinic.co.uk
+  SITE_LANGS?: string; // comma list of offered languages, e.g. "en,ar"
 }
 
 const json = (data: unknown, status = 200) =>
@@ -19,6 +20,7 @@ const CLINIC_INFO: Record<number, { name: string; addr: string; phone: string }>
   3: { name: "London Victoria", addr: "10 Buckingham Palace Rd, London, SW1W 0QP", phone: "07521 808882" },
   11: { name: "City of London", addr: "33-34 Bury St, London, EC3A 5AR", phone: "07521 808882" },
   4: { name: "Online Video Consultation", addr: "Online", phone: "+44 (0)20 3239 7888" },
+  20: { name: "AcuPro Clinic Dubai", addr: "Dubai, United Arab Emirates", phone: "+971 4 000 0000" },
 };
 
 async function sendMail(env: Env, to: string, subject: string, html: string) {
@@ -68,6 +70,19 @@ function doctorEmailHtml(o: { name: string; service: string; note: string; date:
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // Site config for the frontend (currency, region, languages offered).
+    if (url.pathname === "/api/site" && request.method === "GET") {
+      const region = env.SITE_CURRENCY === "AED" ? "UAE" : "UK";
+      return json({ currency: env.SITE_CURRENCY === "AED" ? "AED" : "GBP", region, langs: (env.SITE_LANGS || "en").split(",").map((s) => s.trim()).filter(Boolean) });
+    }
+
+    // Clinics for this site's region (for the booking clinic picker).
+    if (url.pathname === "/api/locations" && request.method === "GET") {
+      const region = env.SITE_CURRENCY === "AED" ? "UAE" : "UK";
+      const { results } = await env.DB.prepare("SELECT id,name,abbr FROM locations WHERE COALESCE(region,'UK')=? ORDER BY id").bind(region).all();
+      return json({ locations: results });
+    }
 
     // Public service catalogue — this site's region, only services visible to patients.
     if (url.pathname === "/api/services" && request.method === "GET") {

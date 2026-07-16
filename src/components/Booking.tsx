@@ -3,7 +3,6 @@ import { servicesByCategory, locations, CONTACT, type Service } from "../data";
 import { slotsForDate, serviceIdsAtLocation } from "../lib/availability";
 
 const STEPS = ["Clinic", "Service", "Date & time", "Your details"];
-const locName = (id: number) => locations.find((l) => l.id === id)?.name ?? `Location ${id}`;
 
 function nextDays(n: number): Date[] {
   const out: Date[] = [];
@@ -40,6 +39,13 @@ export default function Booking() {
   const [d1svc, setD1svc] = useState<Map<number, { id: number; title: string; price: number; duration_min: number }> | null>(null);
   const [currency, setCurrency] = useState("GBP");
   const [avail, setAvail] = useState<{ days: { date: string; slots: { t: string; s: string }[] }[]; tz: string } | null>(null);
+  const [locs, setLocs] = useState<{ id: number; name: string }[]>(locations as any);
+  const locName = (id: number) => locs.find((l) => l.id === id)?.name ?? `Location ${id}`;
+
+  // Clinics for this site's region (UK shows London + online; UAE shows Dubai).
+  useEffect(() => {
+    fetch("/api/locations").then((r) => r.json()).then((d: any) => { if (Array.isArray(d?.locations) && d.locations.length) setLocs(d.locations); }).catch(() => {});
+  }, []);
 
   // Live availability from D1 (working hours minus existing appointments) once clinic + service are chosen.
   useEffect(() => {
@@ -166,7 +172,7 @@ export default function Booking() {
             <div>
               <div className="notice">Choose the clinic you'd like to visit.</div>
               <div className="pick">
-                {locations.map((l) => {
+                {locs.map((l) => {
                   const online = /video|online|global/i.test(l.name);
                   return (
                     <button key={l.id} className={`pick-item ${locationId === l.id ? "sel" : ""}`}

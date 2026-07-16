@@ -31,6 +31,28 @@
   document.addEventListener("mouseout", function (e) { var el = e.target.closest && e.target.closest("[data-info]"); if (el) { hideTip(); } });
   window.addEventListener("scroll", hideTip, true);
 
+  // ---- site config: region pill + language toggle (EN/AR) ----
+  fetch("/api/site").then(function (r) { return r.json(); }).then(function (cfg) {
+    var pill = document.getElementById("regionPill");
+    if (pill && cfg.region === "UAE") { pill.textContent = "🇦🇪 UAE"; }
+    var langs = cfg.langs || [];
+    var btn = document.getElementById("langToggle");
+    if (btn && langs.indexOf("ar") >= 0) {
+      btn.style.display = "";
+      var apply = function (lang) {
+        var ar = lang === "ar";
+        document.documentElement.setAttribute("lang", ar ? "ar" : "en");
+        document.documentElement.setAttribute("dir", ar ? "rtl" : "ltr");
+        btn.textContent = ar ? "English" : "العربية";
+        try { localStorage.setItem("acupro_lang", lang); } catch (e) {}
+      };
+      var cur = "en";
+      try { cur = localStorage.getItem("acupro_lang") || "en"; } catch (e) {}
+      apply(cur);
+      btn.addEventListener("click", function () { apply(document.documentElement.getAttribute("dir") === "rtl" ? "en" : "ar"); });
+    }
+  }).catch(function () {});
+
   // ---- services ----
   var rows = document.querySelectorAll("[data-svc-id]");
   if (rows.length) {

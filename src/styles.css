@@ -210,3 +210,9 @@ img { max-width: 100%; display: block; }
 .bslot--avail.sel { background: var(--pine); color: #fff; border-color: var(--pine); font-weight: 700; }
 .bslot--booked { background: #ded6c6; color: #9a917f; text-decoration: line-through; }
 .bslot--past { background: #f2ede3; color: #c3bcae; text-decoration: line-through; }
+
+/* Language toggle (EN/AR) */
+.lang-btn { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-weight: 600; cursor: pointer; font-family: var(--font-body); color: var(--pine); font-size: 0.9rem; }
+.lang-btn:hover { border-color: var(--pine); }
+[dir="rtl"] body { text-align: right; }
+[dir="rtl"] .nav-cta { flex-direction: row-reverse; }

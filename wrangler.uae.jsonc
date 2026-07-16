@@ -1,0 +1,23 @@
+{
+  "name": "acupro-uae",
+  "compatibility_date": "2025-05-15",
+  "main": "worker/index.ts",
+  "vars": {
+    "SITE_CURRENCY": "AED",
+    "MAIL_FROM": "AcuPro Clinic <bookings@acuproclinic.uk>",
+    "PUBLIC_URL": "https://acupro-uae.jinzhiqi19860716.workers.dev",
+    "SITE_LANGS": "en,ar"
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "acupro-booking",
+      "database_id": "0e9d5182-ea69-471a-9743-42c750a5a839"
+    }
+  ]
+}
