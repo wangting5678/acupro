@@ -22,7 +22,23 @@
 | 项 | 值 |
 | --- | --- |
 | **后台登录密码** | `acupro2026`(明文在 `admin/wrangler.jsonc`;上正式域名后换 Cloudflare Access) |
-| Cloudflare 账号 | `Jinzhiqi0716@gmail.com`(workers.dev 子域 `jinzhiqi19860716`) |
+
+### Cloudflare 登录(所有站都托管在这)
+
+| 项 | 值 |
+| --- | --- |
+| 登录地址 | https://dash.cloudflare.com/login |
+| 账号(邮箱) | `Jinzhiqi0716@gmail.com` |
+| 密码 | **【待填 —— 在你的密码管理器】** |
+| Account ID | `301b0710e94c86b605b42ed250e26018` |
+| workers.dev 子域 | `jinzhiqi19860716` |
+
+> 登录后:Workers & Pages 看所有 Worker(acupro-uk / acupro-uae / acupro-admin / acuproclinic-redesign);Storage & Databases → D1 看 `acupro-booking`。
+
+### 其他账号
+
+| 项 | 值 |
+| --- | --- |
 | 邮件服务 Resend 账号 | `jinzhiqi0716@gmail.com`(密码在你的密码管理器) |
 | 发件人 | `bookings@acuproclinic.uk`(Resend 已验证域名) |
 | Resend API Key | 只以 `wrangler secret` 存在,不进代码/文档 |
