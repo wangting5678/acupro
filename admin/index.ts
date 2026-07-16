@@ -193,7 +193,7 @@ export default {
         end = new Date(t.getTime() + (svc?.duration_min ?? 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
       }
       // location follows the assigned practitioner's clinics
-      const ABBR2LOC: Record<string, number> = { VCT: 3, CITY: 11, ONLINE: 4 };
+      const ABBR2LOC: Record<string, number> = { VCT: 3, CITY: 11, ONLINE: 4, AUH: 20 };
       let newLoc = a?.location_id ?? null;
       if (staff_id) {
         const p = await env.DB.prepare("SELECT clinics FROM practitioners WHERE id=?").bind(staff_id).first<{ clinics: string }>();
@@ -465,7 +465,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
 <script>
 const $=s=>document.querySelector(s);
 const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
-const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a'};
+const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a',AUH:'#a9772a'};
 const START=9,END=21; let HPX=60; // 9am-9pm; HPX (px/hour) is recomputed per render to fit one screen
 function fitHPX(){HPX=Math.max(30,Math.min(58,Math.floor((window.innerHeight-300)/(END-START))))}
 const PAD=12; // top breathing room so the first hour label (9am) isn't hidden under the sticky header
@@ -480,7 +480,7 @@ function locFilterCtrl(){
 function pracInLoc(p){return !locFilter||(p.clinics||'').split(',').map(s=>s.trim()).includes(locFilter)}
 function apptInLoc(a){return !locFilter||a.loc_abbr===locFilter}
 let selCust=null,custTimer=null,custResults=[];
-const CLINIC_ALL=['VCT','CITY','ONLINE'];
+const CLINIC_ALL=['VCT','CITY','ONLINE','AUH'];
 const DOW_NAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function mins(sd){return +sd.slice(11,13)*60 + +sd.slice(14,16)}
 function hmToMin(hm){return +hm.slice(0,2)*60 + +hm.slice(3,5)}
@@ -596,7 +596,7 @@ function colHover(e,pid){const body=e.currentTarget;if(e.target.closest('.appt')
   el.style.top=(PAD+(m-START*60)/60*HPX)+'px';el.textContent=hm12(m)+' · + book'}
 function colHoverOut(){document.querySelectorAll('.hovertime').forEach(x=>x.remove())}
 function colClick(e,pid){if(e.target.closest('.appt'))return;const m=snapMin(e,e.currentTarget);
-  const p=meta.practitioners.find(x=>String(x.id)===String(pid));const ABBR2LOC={VCT:3,CITY:11,ONLINE:4};
+  const p=meta.practitioners.find(x=>String(x.id)===String(pid));const ABBR2LOC={VCT:3,CITY:11,ONLINE:4,AUH:20};
   const ab=p&&p.clinics?(p.clinics.split(',').map(s=>s.trim()).filter(Boolean)[0]):null;
   colHoverOut();openCreate({staff_id:pid,time:minToHm(m),date:ymd(dayDate),location_id:ab?ABBR2LOC[ab]:''})}
 

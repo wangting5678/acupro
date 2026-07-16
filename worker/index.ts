@@ -20,7 +20,7 @@ const CLINIC_INFO: Record<number, { name: string; addr: string; phone: string }>
   3: { name: "London Victoria", addr: "10 Buckingham Palace Rd, London, SW1W 0QP", phone: "07521 808882" },
   11: { name: "City of London", addr: "33-34 Bury St, London, EC3A 5AR", phone: "07521 808882" },
   4: { name: "Online Video Consultation", addr: "Online", phone: "+44 (0)20 3239 7888" },
-  20: { name: "AcuPro Clinic Dubai", addr: "Dubai, United Arab Emirates", phone: "+971 4 000 0000" },
+  20: { name: "AcuPro Clinic Abu Dhabi", addr: "Mubarak Bin Mohammed St, Abu Dhabi, United Arab Emirates", phone: "+971 2 000 0000" },
 };
 
 async function sendMail(env: Env, to: string, subject: string, html: string) {
@@ -105,7 +105,7 @@ export default {
     if (url.pathname === "/api/availability" && request.method === "GET") {
       const locId = Number(url.searchParams.get("location_id"));
       const svcId = Number(url.searchParams.get("service_id"));
-      const TZ = "Europe/London"; // UK clinic timezone (UAE site would use Asia/Dubai)
+      const TZ = env.SITE_CURRENCY === "AED" ? "Asia/Dubai" : "Europe/London"; // clinic timezone per site
       if (!locId || !svcId) return json({ error: "missing params" }, 400);
       const loc = await env.DB.prepare("SELECT abbr FROM locations WHERE id=?").bind(locId).first<{ abbr: string }>();
       const svc = await env.DB.prepare("SELECT duration_min FROM services WHERE id=?").bind(svcId).first<{ duration_min: number }>();
