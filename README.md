@@ -19,6 +19,8 @@
 
 ## 2. 地址密码 / 账号
 
+> 🔑 **全部真实密码/密钥**(Cloudflare、Resend、GitHub、Kinsta、IONOS…)记在本机 **`CREDENTIALS.local.md`**,该文件已 `.gitignore`,**不会上传 GitHub**。下面只放非敏感的定位信息。
+
 | 项 | 值 |
 | --- | --- |
 | **后台登录密码** | `acupro2026`(明文在 `admin/wrangler.jsonc`;上正式域名后换 Cloudflare Access) |
