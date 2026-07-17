@@ -467,7 +467,8 @@ const $=s=>document.querySelector(s);
 const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
 const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a',AUH:'#a9772a'};
 const START=9,END=21; let HPX=60; // 9am-9pm; HPX (px/hour) is recomputed per render to fit one screen
-function fitHPX(){HPX=Math.max(30,Math.min(58,Math.floor((window.innerHeight-300)/(END-START))))}
+const VIS_HOURS=10; // 10:00–20:00 shown by default; 09:00 & 21:00 reached by scrolling
+function fitHPX(){HPX=Math.max(42,Math.min(66,Math.floor((window.innerHeight-240)/VIS_HOURS)))}
 const PAD=12; // top breathing room so the first hour label (9am) isn't hidden under the sticky header
 const COLH=()=>(END-START)*HPX+PAD+8;
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
@@ -584,7 +585,10 @@ function renderDay(){
   }).join('');
   const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
   const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#c98a3f')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
-  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
+  const _dg=document.querySelector('.daygrid');const _ps=_dg?_dg.scrollTop:null;
+  const dgMaxH=56+VIS_HOURS*HPX+PAD+14;
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid" style="max-height:'+dgMaxH+'px">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
+  const dg=document.querySelector('.daygrid');if(dg)dg.scrollTop=_ps!=null?_ps:(HPX+PAD);
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);loadDayNotes()}
 function dyToday(){dayDate=new Date();loadDayNotes()}
@@ -667,9 +671,8 @@ async function saveEdit(id){const a=appts.find(x=>x.id===id);
 async function delBk(id){const a=appts.find(x=>x.id===id);if(!confirm('Delete this booking?'))return;await api('/api/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ca_id:a.id,appointment_id:a.appointment_id})});closeM();load()}
 function openCreate(pre){pre=pre||{};selCust=null;custResults=[];const d=pre.date||(view==='day'?ymd(dayDate):ymd(new Date()));
   $('#mbox').innerHTML='<h3>New booking</h3>'+
-    '<div class="fld"><label>Find existing customer</label><div class="csrch"><input id="c_search" placeholder="Search name, phone or email…" oninput="custSearch(this.value)" autocomplete="off"><div class="csugg" id="c_sugg" style="display:none"></div></div></div>'+
+    '<div class="fld"><label>Customer name</label><div class="csrch"><input id="c_name" placeholder="Type a name — existing customers appear as you type" oninput="custSearch(this.value)" autocomplete="off"><div class="csugg" id="c_sugg" style="display:none"></div></div></div>'+
     '<div id="c_pickwrap"></div>'+
-    '<div class="fld"><label>Customer name</label><input id="c_name" placeholder="Full name" oninput="if(selCust)clearCust(true)"></div>'+
     '<div class="grid2"><div class="fld"><label>Phone</label><input id="c_phone"></div><div class="fld"><label>Email</label><input id="c_email"></div></div>'+
     '<div class="grid2"><div class="fld"><label>Date</label><input id="c_date" type="date" value="'+d+'"></div><div class="fld"><label>Time</label><input id="c_time" type="time" value="'+(pre.time||'10:00')+'"></div></div>'+
     '<div class="fld"><label>Service</label><select id="c_service">'+svcOpt('')+'</select></div>'+
@@ -681,14 +684,15 @@ function openCreate(pre){pre=pre||{};selCust=null;custResults=[];const d=pre.dat
   $('#mbg').classList.add('on');
 }
 function custSearch(q){clearTimeout(custTimer);const box=$('#c_sugg');if(!box)return;q=(q||'').trim();
+  if(selCust){selCust=null;renderPicked();} // editing the name again unlinks the previous match
   if(q.length<2){box.style.display='none';box.innerHTML='';return}
   custTimer=setTimeout(async()=>{const {ok,data}=await api('/api/customers?q='+encodeURIComponent(q));if(!ok)return;custResults=data.customers||[];
     box.innerHTML=custResults.length?custResults.map(c=>'<div onclick="pickCust('+c.id+')">'+esc(c.full_name)+' <span style="color:#999">'+esc(c.email||'')+(c.phone?' · '+esc(c.phone):'')+'</span></div>').join(''):'<div style="color:#999;cursor:default">No match — fill the fields below to create a new customer</div>';
     box.style.display='block';},250);
 }
-function pickCust(id){const c=custResults.find(x=>x.id===id);if(!c)return;selCust=c;$('#c_name').value=c.full_name||'';$('#c_phone').value=c.phone||'';$('#c_email').value=c.email||'';$('#c_search').value=c.full_name||'';$('#c_sugg').style.display='none';renderPicked();}
+function pickCust(id){const c=custResults.find(x=>x.id===id);if(!c)return;selCust=c;$('#c_name').value=c.full_name||'';$('#c_phone').value=c.phone||'';$('#c_email').value=c.email||'';$('#c_sugg').style.display='none';renderPicked();}
 function renderPicked(){const w=$('#c_pickwrap');if(!w)return;w.innerHTML=selCust?'<div class="cust-picked"><span>✓ Linked to existing customer <b>'+esc(selCust.full_name)+'</b> (edits update their record)</span><b class="x" onclick="clearCust()">✕</b></div>':''}
-function clearCust(keepFields){selCust=null;if(!keepFields){$('#c_search').value='';}renderPicked();}
+function clearCust(){selCust=null;renderPicked();}
 async function createBk(){const body={start_date:$('#c_date').value+' '+$('#c_time').value+':00',service_id:+$('#c_service').value,staff_id:$('#c_staff').value?+$('#c_staff').value:null,location_id:$('#c_loc').value?+$('#c_loc').value:null,notes:$('#c_notes').value,full_name:$('#c_name').value,phone:$('#c_phone').value,email:$('#c_email').value,customer_id:selCust?selCust.id:null,email_note:$('#c_emailnote').checked};
   if(!body.full_name){alert('Enter customer name');return}
   await api('/api/create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});closeM();load()}

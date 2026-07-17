@@ -64,8 +64,9 @@
     tip.style.setProperty("--tip-arrow", (cx - left - 5) + "px");
   };
   var hideTip = function () { tip.classList.remove("show"); };
-  document.addEventListener("mouseover", function (e) { var el = e.target.closest && e.target.closest("[data-info]"); if (el) { showTip(el); } });
+  document.addEventListener("mouseover", function (e) { var el = e.target.closest && e.target.closest("[data-info]"); if (el) { showTip(el); } else { hideTip(); } });
   document.addEventListener("mouseout", function (e) { var el = e.target.closest && e.target.closest("[data-info]"); if (el) { hideTip(); } });
+  document.addEventListener("click", hideTip, true);
   window.addEventListener("scroll", hideTip, true);
 
   // ---- site config: region pill + language toggle (EN/AR) ----
