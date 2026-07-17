@@ -46,7 +46,7 @@ async function notifyBooking(env: Env, appointmentId: number, kind: "new" | "upd
     const verb = kind === "new" ? "confirmed" : "updated";
     const noteHtml = includeNote && r.notes ? `<p><b>Note:</b> ${r.notes}</p>` : "";
     const cancelUrl = r.cancel_token ? `${env.PUBLIC_URL || "https://acupro-uk.jinzhiqi19860716.workers.dev"}/cancel?t=${r.cancel_token}` : "";
-    const cancelHtml = cancelUrl ? `<p style="margin:16px 0"><a href="${cancelUrl}" style="background:#1f4d43;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;font-weight:600">View or cancel my appointment</a></p>` : "";
+    const cancelHtml = cancelUrl ? `<p style="margin:16px 0"><a href="${cancelUrl}" style="background:#14508f;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;display:inline-block;font-weight:600">View or cancel my appointment</a></p>` : "";
     const pHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Dear ${r.full_name},</p><p>Your AcuPro Clinic appointment has been ${verb}:</p><p><b>${r.service || "Appointment"}</b></p><p><b>Time:</b> ${date} @ ${time}</p><p><b>Location:</b> ${clinic.name}<br>${clinic.addr}<br>${clinic.phone}</p>${noteHtml}${cancelHtml}<p>Thank you for choosing AcuPro Clinic.</p></div>`;
     const dHtml = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.6"><p>Hello.</p><p>Booking ${kind === "new" ? "added" : "updated"}.</p><p><b>Client:</b> ${r.full_name}<br><b>Service:</b> ${r.service || ""}<br><b>Date:</b> ${date}<br><b>Time:</b> ${time}<br><b>Location:</b> ${clinic.addr}</p>${noteHtml}</div>`;
     const jobs = [sendMail(env, r.pemail, `Your AcuPro appointment ${verb}`, pHtml)];
@@ -320,7 +320,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AcuPro Admin · Bookings</title>
 <style>
-  :root{--pine:#1f4d43;--pine2:#163830;--gold:#c98a3f;--bg:#f4ede2;--ink:#23201c;--line:#e0d6c6;--card:#fff}
+  :root{--pine:#14508f;--pine2:#0f3d6e;--gold:#2e86b0;--bg:#eef3f7;--ink:#2b3138;--line:#d5dee6;--card:#fff}
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,system-ui,sans-serif;background:var(--bg);color:var(--ink)}
   header{background:var(--pine);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
@@ -348,14 +348,14 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .mhead{text-align:center;font-size:.72rem;font-weight:700;color:#8a8172;text-transform:uppercase;letter-spacing:.04em;padding:4px 0}
   .mcell{min-height:92px;border:1px solid var(--line);border-radius:10px;padding:7px 8px;cursor:pointer;background:#fff}
   .mcell:hover{border-color:var(--pine)}
-  .mcell.out{background:#faf6ef}
-  .mcell.today{border-color:var(--pine);box-shadow:0 0 0 2px rgba(31,77,67,.12)}
+  .mcell.out{background:#f1f5f9}
+  .mcell.today{border-color:var(--pine);box-shadow:0 0 0 2px rgba(20,80,143,.12)}
   .mnum{font-weight:700;font-size:.9rem}
   .mcell.out .mnum{color:#c3bcae}
   .mcount{margin-top:8px;font-size:.72rem;color:#fff;background:var(--pine);border-radius:6px;padding:2px 7px;display:inline-block}
   /* team notes board */
-  .notesbox{background:#fff;border:1px dashed var(--pine);border-radius:10px;padding:9px 14px;margin-bottom:12px}
-  .notesbox h5{margin:0 0 6px;font-size:.75rem;color:#1f4d43;text-transform:uppercase;letter-spacing:.05em}
+  .notesbox{background:#f0f6fb;border:1px solid #bcd6e8;border-left:4px solid var(--pine);border-radius:10px;padding:12px 16px;margin-bottom:14px}
+  .notesbox h5{margin:0 0 8px;font-size:.8rem;color:#14508f;font-weight:800;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:6px}
   .noteitem{position:relative;padding:6px 22px 6px 0;border-bottom:1px dashed var(--line)}
   .noteitem:last-of-type{border-bottom:0}
   .nauthor{font-weight:700;font-size:.85rem;margin-right:8px}
@@ -363,33 +363,34 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .nbody{font-size:.9rem;color:#4a463f;margin-top:2px;white-space:pre-wrap}
   .ndel{position:absolute;right:0;top:6px;background:none;border:0;color:#b0553a;cursor:pointer;font-size:.8rem}
   .noteadd{display:flex;gap:8px;margin-top:10px}
-  .noteadd input{flex:1}
-  .noteadd .btn{padding:8px 14px;white-space:nowrap}
+  .noteadd input{flex:1;background:#fff}
+  .noteadd input#note_body{border:1.5px solid var(--pine)}
+  .noteadd .btn{padding:8px 16px;white-space:nowrap}
   .day{background:var(--card);border:1px solid var(--line);border-radius:12px;min-height:110px;padding:8px;cursor:pointer}
-  .day.today{border-color:var(--pine);box-shadow:0 0 0 2px rgba(31,77,67,.12)}
+  .day.today{border-color:var(--pine);box-shadow:0 0 0 2px rgba(20,80,143,.12)}
   .day:hover{border-color:var(--pine)}
   .day h4{margin:0 0 8px;font-size:.8rem;color:#7a7266;text-align:center;font-weight:700}.day h4 b{display:block;font-size:1.1rem;color:var(--ink)}
-  .chip{background:#f3f7f4;border-left:3px solid var(--pine);border-radius:6px;padding:5px 7px;margin-bottom:6px;font-size:.76rem}
+  .chip{background:#eff4f8;border-left:3px solid var(--pine);border-radius:6px;padding:5px 7px;margin-bottom:6px;font-size:.76rem}
   .chip .t{font-weight:700}.chip .n{color:#4a463f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .empty{color:#bbb;font-size:.75rem;text-align:center;margin-top:16px}
   /* day time-grid */
-  .daygrid{display:flex;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff}
+  .daygrid{display:flex;overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#e4ecf3}
   .col{min-width:150px;flex:1 0 150px;border-right:1px solid var(--line);position:relative}
   .col:last-child{border-right:0}
-  .col.gutter{min-width:64px;flex:0 0 64px;background:#faf6ef}
+  .col.gutter{min-width:64px;flex:0 0 64px;background:#f1f5f9}
   .colhead{height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:2;font-size:.82rem;font-weight:600;text-align:center;padding:4px;cursor:grab}
   .colhead:active{cursor:grabbing}
   .colhead img,.colhead .ph{width:26px;height:26px;border-radius:50%;margin-bottom:2px}
   .colbody{position:relative;height:720px}
   .colbody.bookable{cursor:pointer}
   .hovertime{position:absolute;left:4px;background:var(--pine);color:#fff;font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:5px;z-index:3;pointer-events:none;transform:translateY(-1px);white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2)}
-  .whblock{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.12);border:1px solid rgba(31,77,67,.28);border-radius:5px;font-size:.62rem;color:#1f4d43;z-index:0;overflow:hidden}
+  .whblock{position:absolute;left:2px;right:2px;background:#fff;border:1px solid #d5dee6;box-shadow:0 1px 3px rgba(20,80,143,.08);border-radius:5px;font-size:.62rem;color:#9aa4af;z-index:0;overflow:hidden}
   .whblock span{position:absolute;top:1px;left:4px}
-  .move-prev{position:absolute;left:2px;right:2px;background:rgba(31,77,67,.18);border:2px dashed var(--pine);border-radius:6px;z-index:6;pointer-events:none}
+  .move-prev{position:absolute;left:2px;right:2px;background:rgba(20,80,143,.18);border:2px dashed var(--pine);border-radius:6px;z-index:6;pointer-events:none}
   .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee;pointer-events:none}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
-  .col.drop-hi{background:#eef5f0}
-  .appt{position:absolute;z-index:1;background:rgba(249,222,190,.72);border:1px solid rgba(201,138,63,.55);border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);backdrop-filter:saturate(1.1)}
+  .col.drop-hi{background:#e7eff6}
+  .appt{position:absolute;z-index:1;background:rgba(188,220,234,.75);border:1px solid rgba(46,134,176,.5);border-left:3px solid var(--gold);border-radius:6px;padding:4px 6px;font-size:.74rem;cursor:grab;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);backdrop-filter:saturate(1.1)}
   .appt{line-height:1.2}
   .appt .s{color:#5f5a50;font-size:.66rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* service legend */
@@ -399,8 +400,8 @@ const PAGE = `<!doctype html><html lang="en"><head>
   /* services table */
   .svcrow{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line)}
   .stname{flex:1;max-width:320px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 12px;font:inherit;font-weight:600;color:var(--ink);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .stname:hover{border-color:var(--pine);background:#f6faf8}
-  .stname .hasinfo{color:#256b45;font-weight:600;font-size:.82rem}
+  .stname:hover{border-color:var(--pine);background:#f0f6fb}
+  .stname .hasinfo{color:#1f6a99;font-weight:600;font-size:.82rem}
   .regtgl{border:1px solid var(--line);background:#fff;color:#7a7266;border-radius:999px;padding:7px 16px;font-size:.85rem;font-weight:700;cursor:pointer}
   .regtgl.on{background:var(--pine);color:#fff;border-color:var(--pine)}
   .svcrow:last-child{border-bottom:0}
@@ -411,14 +412,14 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .nf{display:flex;align-items:center;gap:5px}
   .nf>span{color:#8a8172;font-size:.9rem}
   .vistgl{border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:.8rem;font-weight:700;cursor:pointer;white-space:nowrap}
-  .vistgl.pub{background:#eef5f0;color:#256b45;border-color:#cfe0d5}
+  .vistgl.pub{background:#e7eff6;color:#1f6a99;border-color:#bcd6e8}
   .vistgl.prv{background:#f6ede0;color:#a9772a;border-color:#e6d3ac}
   /* customer search */
   .csrch{position:relative}
   .csugg{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--line);border-radius:0 0 9px 9px;box-shadow:0 8px 24px -12px rgba(0,0,0,.3);z-index:3;max-height:220px;overflow:auto}
   .csugg div{padding:9px 12px;cursor:pointer;font-size:.86rem;border-bottom:1px solid #f0ebe1}
-  .csugg div:hover{background:#f3f7f4}
-  .cust-picked{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#eef5f0;border:1px solid #cfe0d5;border-radius:9px;padding:9px 12px;font-size:.86rem}
+  .csugg div:hover{background:#eff4f8}
+  .cust-picked{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#e7eff6;border:1px solid #bcd6e8;border-radius:9px;padding:9px 12px;font-size:.86rem}
   .cust-picked b.x{cursor:pointer;color:#b0553a}
   /* roster */
   .rosterbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -450,7 +451,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .hday{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
   .hlabel{width:38px;font-weight:700;font-size:.82rem;color:var(--pine)}
   .hchips{flex:1;display:flex;flex-wrap:wrap;gap:5px;min-width:0}
-  .hchip{background:#eef5f0;border:1px solid #cfe0d5;border-radius:999px;padding:3px 9px;font-size:.78rem;font-weight:600;color:#1f4d43;display:inline-flex;align-items:center;gap:6px}
+  .hchip{background:#e7eff6;border:1px solid #bcd6e8;border-radius:999px;padding:3px 9px;font-size:.78rem;font-weight:600;color:#14508f;display:inline-flex;align-items:center;gap:6px}
   .hchip b{cursor:pointer;color:#b0553a;font-weight:700}
   .hadd{display:flex;align-items:center;gap:4px}
   .hadd input{width:96px;padding:5px 6px}
@@ -459,13 +460,13 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .svcgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;max-height:52vh;overflow:auto}
   .svcopt{display:flex;align-items:center;gap:8px;font-size:.85rem;padding:3px 0}
   .svcopt input{width:auto}
-  .movesum{background:#f3f7f4;border-radius:8px;padding:10px 12px;font-size:.9rem}
+  .movesum{background:#eff4f8;border-radius:8px;padding:10px 12px;font-size:.9rem}
 </style></head><body>
 <div id="app"></div>
 <script>
 const $=s=>document.querySelector(s);
 const UK='https://acupro-uk.jinzhiqi19860716.workers.dev';
-const CLINIC_COLOR={VCT:'#256b45',CITY:'#b0553a',ONLINE:'#4a3f7a',AUH:'#a9772a'};
+const CLINIC_COLOR={VCT:'#1f6a99',CITY:'#b0553a',ONLINE:'#4a3f7a',AUH:'#a9772a'};
 const START=9,END=21; let HPX=60; // 9am-9pm; HPX (px/hour) is recomputed per render to fit one screen
 const VIS_HOURS=10; // 10:00–20:00 shown by default; 09:00 & 21:00 reached by scrolling
 function fitHPX(){HPX=Math.max(42,Math.min(66,Math.floor((window.innerHeight-240)/VIS_HOURS)))}
@@ -490,7 +491,7 @@ function curDow(){return dayDate.getDay()===0?7:dayDate.getDay()}
 function monday(d){d=new Date(d);const g=(d.getDay()+6)%7;d.setDate(d.getDate()-g);d.setHours(0,0,0,0);return d}
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function esc(s){return (s==null?'':''+s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-function rgba(hex,a){const h=(hex||'#c98a3f').replace('#','');const n=parseInt(h.length===3?h.split('').map(c=>c+c).join(''):h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
+function rgba(hex,a){const h=(hex||'#2e86b0').replace('#','');const n=parseInt(h.length===3?h.split('').map(c=>c+c).join(''):h,16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'}
 function initials(n){n=(''+(n||'')).replace(/\\(.*\\)/,'').trim();return n.split(/\\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase()}
 function photoUrl(photo){return /^https?:\\/\\//.test(photo||'')?photo:UK+photo}
 function avatar(photo,name,cls){return photo?'<img draggable="false" class="av '+(cls||'')+'" src="'+photoUrl(photo)+'" alt="">':'<span class="av ph '+(cls||'')+'">'+initials(name)+'</span>'}
@@ -502,7 +503,7 @@ async function doLogin(){const {ok,data}=await api('/api/login',{method:'POST',h
 async function boot(){const m=await api('/api/meta');if(!m.ok)return loginView('');meta=m.data;await load()}
 async function load(){const a=await api('/api/appointments');if(!a.ok)return loginView('');appts=a.data.appointments||[];const h=await api('/api/hours');hours=h.ok?(h.data.hours||[]):[];render()}
 
-function navbtn(p,label){const fn=p==='roster'?'goRoster':p==='services'?'goServices':'goBookings';return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#1f4d43':'#fff')+';font-weight:600" onclick="'+fn+'()">'+label+'</button>'}
+function navbtn(p,label){const fn=p==='roster'?'goRoster':p==='services'?'goServices':'goBookings';return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#14508f':'#fff')+';font-weight:600" onclick="'+fn+'()">'+label+'</button>'}
 function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+navbtn('services','Services')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
 function render(){if(page==='roster')return renderRoster();if(page==='services')return renderServices();if(view==='month')return renderMonth();view==='day'?renderDay():renderWeek()}
 function viewTabs(){return '<button class="nav-btn'+(view==='week'?' on':'')+'" onclick="toWeek()">Week</button><button class="nav-btn'+(view==='day'?' on':'')+'" onclick="toDayView()">Day</button><button class="nav-btn'+(view==='month'?' on':'')+'" onclick="toMonth()">Month</button>'}
@@ -547,7 +548,7 @@ async function addNote(){const b=$('#note_body').value.trim();if(!b)return;noteA
 async function delNote(id){if(!confirm('Delete this note?'))return;await api('/api/note_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});await loadDayNotes()}
 function notesBox(){
   const list=notes.map(n=>'<div class="noteitem"><span class="nauthor">'+esc(n.author)+'</span><span class="ntime">'+(n.created_at?new Date(n.created_at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'')+'</span><button class="ndel" onclick="delNote('+n.id+')" title="Delete">✕</button><div class="nbody">'+esc(n.body)+'</div></div>').join('')||'<div style="color:#7a7266;font-size:.82rem">No notes yet — leave a message for colleagues about this day.</div>';
-  return '<div class="notesbox"><h5>📌 Team notes — '+dayDate.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+'</h5><div class="notelist">'+list+'</div><div class="noteadd"><input id="note_author" placeholder="Your name" value="'+esc(noteAuthor)+'" style="max-width:150px"><input id="note_body" placeholder="Leave a note for this day…" onkeydown="if(event.key===\\'Enter\\')addNote()"><button class="btn" onclick="addNote()">Post</button></div></div>';
+  return '<div class="notesbox"><h5>📌 Team notes — '+dayDate.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+' <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#5a636d">· type below and press Post to leave a message for colleagues</span></h5><div class="notelist">'+list+'</div><div class="noteadd"><input id="note_author" placeholder="Your name" value="'+esc(noteAuthor)+'" style="max-width:150px"><input id="note_body" placeholder="✏️ Write a note for this day here…" onkeydown="if(event.key===\\'Enter\\')addNote()"><button class="btn" onclick="addNote()">Post</button></div></div>';
 }
 
 function renderDay(){
@@ -576,7 +577,7 @@ function renderDay(){
       const sm=mins(a.start_date), dur=a.duration_min||60;
       const top=PAD+(sm-START*60)/60*HPX, hgt=Math.max(dur/60*HPX-2,22);
       const w=100/a._lanes, left=a._lane*w;
-      const col=svcColor[a.service_id]||'#c98a3f';
+      const col=svcColor[a.service_id]||'#2e86b0';
       const style='top:'+top+'px;height:'+hgt+'px;left:calc('+left+'% + 2px);width:calc('+w+'% - 4px);background:'+rgba(col,.22)+';border-color:'+rgba(col,.5)+';border-left:3px solid '+col;
       const svcName=hgt>=40?'<div class="s">'+esc(a.service||'')+'</div>':'';
       return '<div class="appt" draggable="true" title="'+esc(a.service||'')+' · '+esc(a.full_name)+'" style="'+style+'" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div>'+svcName+'</div>';
@@ -584,10 +585,10 @@ function renderDay(){
     return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody bookable" style="height:'+COLH()+'px" onmousemove="colHover(event,'+p.id+')" onmouseleave="colHoverOut()" onclick="colClick(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
   }).join('');
   const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
-  const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#c98a3f')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
+  const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#2e86b0')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
   const _dg=document.querySelector('.daygrid');const _ps=_dg?_dg.scrollTop:null;
   const dgMaxH=56+VIS_HOURS*HPX+PAD+14;
-  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">Shaded = working hours (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid" style="max-height:'+dgMaxH+'px">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">⬜ White = working hours, open for booking (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid" style="max-height:'+dgMaxH+'px">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
   const dg=document.querySelector('.daygrid');if(dg)dg.scrollTop=_ps!=null?_ps:(HPX+PAD);
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);loadDayNotes()}
@@ -765,7 +766,7 @@ function renderServices(){
   const list=svcList.filter(s=>(s.region||'UK')===svcRegion);
   const regBar='<div style="display:flex;align-items:center;gap:8px;margin:0 0 14px"><span style="font-size:.85rem;color:#7a7266;font-weight:600">Catalogue:</span><button class="regtgl'+(svcRegion==='UK'?' on':'')+'" onclick="setSvcRegion(\\'UK\\')">🇬🇧 UK (£)</button><button class="regtgl'+(svcRegion==='UAE'?' on':'')+'" onclick="setSvcRegion(\\'UAE\\')">🇦🇪 UAE (AED)</button></div>';
   const head='<div class="svchead"><span style="width:38px"></span><span style="flex:1;max-width:320px">Service</span><span style="width:104px">Price ('+sym+')</span><span style="width:110px">Duration</span><span style="width:118px">Visibility</span><span style="flex:1"></span></div>';
-  const rows=list.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#c98a3f')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><button class="stname" onclick="openSvc('+s.id+')" title="Click to edit name & information">'+esc(s.title)+(s.description?' <span class="hasinfo">· info</span>':'')+'</button><div class="nf"><span>'+sym+'</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('')||'<div style="padding:24px;color:#7a7266">No services in the '+svcRegion+' catalogue yet — add one below.</div>';
+  const rows=list.map(s=>'<div class="svcrow"><input type="color" value="'+(s.color||'#2e86b0')+'" onchange="svcSet('+s.id+',\\'color\\',this.value)" title="Colour on the day view"><button class="stname" onclick="openSvc('+s.id+')" title="Click to edit name & information">'+esc(s.title)+(s.description?' <span class="hasinfo">· info</span>':'')+'</button><div class="nf"><span>'+sym+'</span><input class="sp" type="number" min="0" value="'+(s.price||0)+'" onchange="svcSet('+s.id+',\\'price\\',this.value)" title="Price"></div><div class="nf"><input class="sd" type="number" min="5" step="5" value="'+(s.duration_min||60)+'" onchange="svcSet('+s.id+',\\'duration_min\\',this.value)" title="Duration in minutes"><span>min</span></div>'+visBtn(s)+'<button class="btn danger" onclick="svcDel('+s.id+')">Delete</button></div>').join('')||'<div style="padding:24px;color:#7a7266">No services in the '+svcRegion+' catalogue yet — add one below.</div>';
   $('#app').innerHTML=shell('<h2 style="margin:4px 0 6px;font-size:1.25rem">Services</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 12px">Two independent catalogues — <b>UK</b> and <b>UAE</b> — each with its own services, prices (UK in £, UAE in AED — unrelated numbers), descriptions and visibility. Each public site reads its own catalogue. <b>Click a service name</b> to edit its name &amp; information (shown to patients). <b>Visibility:</b> 🌐 Public = on the booking page; 🔒 Private = admin-only. Changes save automatically.</p>'+regBar+'<div class="rosterbox">'+head+rows+'</div><div class="addrow"><input type="color" id="ns_color" value="#4a6fa5" title="Colour"><input id="ns_title" placeholder="New '+svcRegion+' service name" style="flex:1;max-width:280px"><div class="nf"><span>'+sym+'</span><input id="ns_price" type="number" placeholder="0" min="0" style="width:80px"></div><div class="nf"><input id="ns_dur" type="number" placeholder="60" value="60" min="5" step="5" style="width:80px"><span>min</span></div><button class="btn" onclick="svcAdd()">+ Add to '+svcRegion+'</button></div>');
 }
 async function svcSave(s){await api('/api/service_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(s)})}
