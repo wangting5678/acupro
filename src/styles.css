@@ -1,18 +1,19 @@
 :root {
-  --bg: #fbf7f1;
-  --bg-warm: #f4ede2;
+  /* Blue + grey palette taken from the AcuPro logo (deep blue / light blue + greys). Colours can be fine-tuned later. */
+  --bg: #eef3f7;
+  --bg-warm: #e2ebf2;
   --surface: #ffffff;
-  --ink: #23201c;
-  --ink-soft: #5c564d;
-  --line: #e7ddce;
-  --pine: #1f4d43;
-  --pine-deep: #163830;
-  --gold: #c98a3f;
-  --gold-soft: #e7c9a0;
+  --ink: #2b3138;
+  --ink-soft: #5a636d;
+  --line: #d5dee6;
+  --pine: #14508f;
+  --pine-deep: #0f3d6e;
+  --gold: #2e86b0;
+  --gold-soft: #bcdcea;
   --terra: #b0553a;
   --radius: 16px;
-  --shadow: 0 18px 45px -22px rgba(31, 77, 67, 0.35);
-  --shadow-sm: 0 8px 24px -16px rgba(31, 77, 67, 0.3);
+  --shadow: 0 18px 45px -22px rgba(20, 80, 143, 0.35);
+  --shadow-sm: 0 8px 24px -16px rgba(20, 80, 143, 0.3);
   --maxw: 1160px;
   --font-body: "Inter", system-ui, sans-serif;
   --font-head: "Fraunces", Georgia, serif;
@@ -62,7 +63,7 @@ img { max-width: 100%; display: block; }
 /* Header */
 .site-header {
   position: sticky; top: 0; z-index: 40;
-  background: rgba(251, 247, 241, 0.85); backdrop-filter: blur(12px);
+  background: rgba(238, 243, 247, 0.88); backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
 .nav { display: flex; align-items: center; justify-content: space-between; height: 74px; }
@@ -216,3 +217,8 @@ img { max-width: 100%; display: block; }
 .lang-btn:hover { border-color: var(--pine); }
 [dir="rtl"] body { text-align: right; }
 [dir="rtl"] .nav-cta { flex-direction: row-reverse; }
+
+/* Header logo + hero video */
+.brand-logo { height: 40px; width: auto; display: block; }
+.hero-video { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); background: #000; }
+.hero-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }

@@ -234,9 +234,17 @@ export default {
           }
         }
 
-        const cust = await env.DB.prepare(
-          "INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id",
-        ).bind(name, phone ?? null, email).first<{ id: number }>();
+        // Identity is the EMAIL: same email = same person (name/phone may vary each time).
+        let cust = email
+          ? await env.DB.prepare("SELECT id FROM customers WHERE lower(email)=lower(?) LIMIT 1").bind(email).first<{ id: number }>()
+          : null;
+        if (cust) {
+          await env.DB.prepare("UPDATE customers SET full_name=?, phone=? WHERE id=?").bind(name, phone ?? null, cust.id).run();
+        } else {
+          cust = await env.DB.prepare(
+            "INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id",
+          ).bind(name, phone ?? null, email).first<{ id: number }>();
+        }
 
         const token = crypto.randomUUID();
         const appt = await env.DB.prepare(

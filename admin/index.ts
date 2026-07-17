@@ -168,11 +168,11 @@ export default {
         const t = new Date(start_date.replace(" ", "T") + "Z");
         end = new Date(t.getTime() + (svc?.duration_min ?? 60) * 60000).toISOString().slice(0, 19).replace("T", " ");
       }
-      // reuse an existing customer (keep their contact info fresh) or create a new one
-      let cust: { id: number } | null;
-      if (customer_id) {
-        await env.DB.prepare("UPDATE customers SET full_name=?, phone=?, email=? WHERE id=?").bind(full_name, phone ?? "", email ?? "", customer_id).run();
-        cust = { id: customer_id };
+      // Identity is the EMAIL: reuse the linked customer, else match by email, else create new.
+      let cust: { id: number } | null = customer_id ? { id: customer_id } : null;
+      if (!cust && email) cust = await env.DB.prepare("SELECT id FROM customers WHERE lower(email)=lower(?) LIMIT 1").bind(email).first<{ id: number }>();
+      if (cust) {
+        await env.DB.prepare("UPDATE customers SET full_name=?, phone=?, email=? WHERE id=?").bind(full_name, phone ?? "", email ?? "", cust.id).run();
       } else {
         cust = await env.DB.prepare("INSERT INTO customers(full_name,phone,email) VALUES(?,?,?) RETURNING id").bind(full_name, phone ?? "", email ?? "").first<{ id: number }>();
       }
