@@ -319,6 +319,7 @@ export default {
 const PAGE = `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AcuPro Admin · Bookings</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314508f'/%3E%3Crect x='34' y='10' width='20' height='44' rx='4' fill='%23bcdcea'/%3E%3Cpath fill='%23fff' d='M11.4 46 24.8 15.5h5.6L43.8 46h-7.1l-2.8-6.9H21L18.3 46h-6.9Zm11.8-12.4h8.4l-4.2-10.7-4.2 10.7Z'/%3E%3C/svg%3E">
 <style>
   :root{--pine:#14508f;--pine2:#0f3d6e;--gold:#2e86b0;--bg:#eef3f7;--ink:#2b3138;--line:#d5dee6;--card:#fff}
   *{box-sizing:border-box}
