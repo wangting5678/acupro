@@ -122,6 +122,11 @@ export default {
       const DAYS = 31;
       const endStr = dfmt.format(new Date(base.getTime() + DAYS * 86400000));
       const appts = (((await env.DB.prepare(`SELECT staff_id,start_date,end_date FROM appointments WHERE staff_id IN (${ph}) AND start_date < ? AND end_date > ?`).bind(...staff, endStr + " 23:59:59", todayStr + " 00:00:00").all<any>()).results) || []);
+      // Time blocks (unavailable): practitioner-specific OR clinic-wide (practitioner_id IS NULL). Table may not exist yet → treat as none.
+      let blks: any[] = [];
+      try {
+        blks = (((await env.DB.prepare(`SELECT practitioner_id,date,start_time,end_time FROM staff_blocks WHERE date >= ? AND date <= ? AND (practitioner_id IN (${ph}) OR practitioner_id IS NULL)`).bind(todayStr, endStr, ...staff).all<any>()).results) || []);
+      } catch { blks = []; }
       const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
       const pad = (n: number) => String(n).padStart(2, "0");
       const days: any[] = [];
@@ -134,11 +139,12 @@ export default {
           const blocks = ex.length ? ex : wh.filter((w) => w.practitioner_id === sid && !w.date && Number(w.dow) === dow);
           if (!blocks.length) continue;
           const sAppts = appts.filter((a) => a.staff_id === sid && (a.start_date || "").slice(0, 10) === ds).map((a) => ({ s: toMin((a.start_date || "").slice(11, 16)), e: toMin((a.end_date || "").slice(11, 16)) }));
+          const sBlocks = blks.filter((x) => x.date === ds && (x.practitioner_id === sid || x.practitioner_id == null)).map((x) => ({ s: toMin(x.start_time), e: toMin(x.end_time) }));
           for (const b of blocks) {
             const ws = toMin(b.start_time), we = toMin(b.end_time);
             for (let t = ws; t + dur <= we; t += 30) {
               const k = String(t); working[k] = true;
-              if (!sAppts.some((a) => a.s < t + dur && a.e > t)) anyFree[k] = true;
+              if (!sAppts.some((a) => a.s < t + dur && a.e > t) && !sBlocks.some((a) => a.s < t + dur && a.e > t)) anyFree[k] = true;
             }
           }
         }

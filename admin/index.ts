@@ -304,6 +304,26 @@ export default {
       return json({ ok: true });
     }
 
+    // ---- time blocks (unavailable time; practitioner_id NULL = whole clinic) ----
+    if (url.pathname === "/api/blocks" && req.method === "GET") {
+      const date = url.searchParams.get("date") || "";
+      try {
+        const { results } = await env.DB.prepare("SELECT id,practitioner_id,date,start_time,end_time,note FROM staff_blocks WHERE date=? ORDER BY start_time").bind(date).all();
+        return json({ blocks: results });
+      } catch { return json({ blocks: [] }); }
+    }
+    if (url.pathname === "/api/block_add" && req.method === "POST") {
+      const { practitioner_id, date, start, end, note } = (await req.json()) as any;
+      if (!date || !start || !end) return json({ error: "missing" }, 400);
+      await env.DB.prepare("INSERT INTO staff_blocks(practitioner_id,date,start_time,end_time,note,created_at) VALUES(?,?,?,?,?,?)").bind(practitioner_id || null, date, start, end, (note || "").trim(), new Date().toISOString()).run();
+      return json({ ok: true });
+    }
+    if (url.pathname === "/api/block_del" && req.method === "POST") {
+      const { id } = (await req.json()) as any;
+      await env.DB.prepare("DELETE FROM staff_blocks WHERE id=?").bind(id).run();
+      return json({ ok: true });
+    }
+
     // cancel = delete (no status)
     if (url.pathname === "/api/delete" && req.method === "POST") {
       const { ca_id, appointment_id } = (await req.json()) as any;
@@ -388,6 +408,14 @@ const PAGE = `<!doctype html><html lang="en"><head>
   .whblock{position:absolute;left:2px;right:2px;background:#fff;border:1px solid #d5dee6;box-shadow:0 1px 3px rgba(20,80,143,.08);border-radius:5px;font-size:.62rem;color:#9aa4af;z-index:0;overflow:hidden}
   .whblock span{position:absolute;top:1px;left:4px}
   .move-prev{position:absolute;left:2px;right:2px;background:rgba(20,80,143,.18);border:2px dashed var(--pine);border-radius:6px;z-index:6;pointer-events:none}
+  /* blocked / unavailable time */
+  .blk{position:absolute;left:2px;right:2px;z-index:4;border-radius:6px;background:repeating-linear-gradient(45deg,#cbd4dd,#cbd4dd 6px,#dde4eb 6px,#dde4eb 12px);border:1px solid #aab6c2;color:#39434d;font-size:.68rem;font-weight:700;padding:3px 18px 3px 6px;overflow:hidden;line-height:1.25}
+  .blk .bx{position:absolute;right:3px;top:2px;cursor:pointer;color:#b0553a;font-weight:700;font-size:.72rem}
+  .blk .ball{font-size:.58rem;background:#5a636d;color:#fff;border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:middle}
+  .blk .bnote{font-weight:400;color:#4a545e}
+  .ctoggle{display:flex;gap:6px;margin:-2px 0 14px}
+  .ctoggle button{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 10px;font-weight:700;cursor:pointer;font-size:.9rem;color:#7a7266}
+  .ctoggle button.on{background:var(--pine);color:#fff;border-color:var(--pine)}
   .hourline{position:absolute;left:0;right:0;border-top:1px dashed #eee;pointer-events:none}
   .gutter .hourlabel{position:absolute;right:6px;font-size:.72rem;color:#999;transform:translateY(-7px)}
   .col.drop-hi{background:#e7eff6}
@@ -474,7 +502,7 @@ function fitHPX(){HPX=Math.max(42,Math.min(66,Math.floor((window.innerHeight-240
 const PAD=12; // top breathing room so the first hour label (9am) isn't hidden under the sticky header
 const COLH=()=>(END-START)*HPX+PAD+8;
 let appts=[],meta={services:[],practitioners:[],locations:[]},view='week',cursor=monday(new Date()),dayDate=new Date();
-let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='',svcRegion='UK',monthCursor=new Date(),notes=[];
+let page='bookings',pracList=[],newClin=new Set(),hours=[],svcList=[],locFilter='',svcRegion='UK',monthCursor=new Date(),notes=[],dayBlocks=[],createPre={};
 function setLocFilter(v){locFilter=v;render()}
 function locFilterCtrl(){
   const opts='<option value="">All locations</option>'+meta.locations.filter(l=>l.abbr).map(l=>'<option value="'+l.abbr+'"'+(locFilter===l.abbr?' selected':'')+'>'+esc(l.name)+'</option>').join('');
@@ -520,7 +548,7 @@ function renderMonth(){
     const cnt=appts.filter(a=>a.start_date&&a.start_date.slice(0,10)===ds&&apptInLoc(a)).length;
     cells+='<div class="mcell'+(inM?'':' out')+(ds===todayS?' today':'')+'" onclick=\\'openDay("'+ds+'")\\'><div class="mnum">'+d.getDate()+'</div>'+(cnt?'<div class="mcount">'+cnt+' booking'+(cnt>1?'s':'')+'</div>':'')+'</div>';
   }
-  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="mo(-1)">←</button><button class="nav-btn" onclick="moToday()">This month</button><button class="nav-btn" onclick="mo(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="monthgrid">'+head+cells+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="mo(-1)">←</button><button class="nav-btn" onclick="moToday()">This month</button><button class="nav-btn" onclick="mo(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate({})">+ New booking</button></div><div class="monthgrid">'+head+cells+'</div>');
 }
 function goBookings(){page='bookings';render()}
 function goRoster(){page='roster';loadPrac()}
@@ -536,14 +564,14 @@ function renderWeek(){
     const chips=list.map(a=>'<div class="chip"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div></div>').join('')||'<div class="empty">—</div>';
     return '<div class="day'+(ds===todayS?' today':'')+'" onclick=\\'openDay("'+ds+'")\\'><h4>'+d.toLocaleDateString('en-GB',{weekday:'short'})+'<b>'+d.getDate()+'</b></h4>'+chips+'</div>';
   }).join('');
-  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="wk(-7)">←</button><button class="nav-btn" onclick="wkToday()">This week</button><button class="nav-btn" onclick="wk(7)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate()">+ New booking</button></div><div class="week">'+cols+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="wk(-7)">←</button><button class="nav-btn" onclick="wkToday()">This week</button><button class="nav-btn" onclick="wk(7)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><button class="btn" onclick="openCreate({})">+ New booking</button></div><div class="week">'+cols+'</div>');
 }
 function wk(n){cursor.setDate(cursor.getDate()+n);render()}
 function wkToday(){cursor=monday(new Date());render()}
 function openDay(ds){dayDate=new Date(ds+'T00:00:00');view='day';loadDayNotes()}
 function toDayView(){dayDate=new Date();view='day';loadDayNotes()}
 function toWeek(){view='week';render()}
-async function loadDayNotes(){const n=await api('/api/notes?date='+ymd(dayDate));notes=n.ok?(n.data.notes||[]):[];renderDay()}
+async function loadDayNotes(){const [n,bl]=await Promise.all([api('/api/notes?date='+ymd(dayDate)),api('/api/blocks?date='+ymd(dayDate))]);notes=n.ok?(n.data.notes||[]):[];dayBlocks=bl.ok?(bl.data.blocks||[]):[];renderDay()}
 let noteAuthor='';
 async function addNote(){const b=$('#note_body').value.trim();if(!b)return;noteAuthor=$('#note_author').value.trim();await api('/api/note_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:ymd(dayDate),author:noteAuthor,body:b})});await loadDayNotes()}
 async function delNote(id){if(!confirm('Delete this note?'))return;await api('/api/note_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});await loadDayNotes()}
@@ -573,6 +601,7 @@ function renderDay(){
     let lines='';for(let h=START;h<=END;h++){lines+='<div class="hourline" style="top:'+(PAD+(h-START)*HPX)+'px"></div>'}
     const whs=hours.filter(h=>String(h.practitioner_id)===String(p.id)&&!h.date&&h.dow===dow);
     const whHtml=whs.map(h=>{const s=hmToMin(h.start_time),e=hmToMin(h.end_time);const top=PAD+(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,6);return '<div class="whblock" style="top:'+top+'px;height:'+hgt+'px" title="Working hours '+h.start_time+'–'+h.end_time+' — edit in Practitioners"><span>'+h.start_time+'–'+h.end_time+'</span></div>'}).join('');
+    const blkHtml=dayBlocks.filter(b=>b.practitioner_id==null||String(b.practitioner_id)===String(p.id)).map(b=>{const s=hmToMin(b.start_time),e=hmToMin(b.end_time);const top=PAD+(s-START*60)/60*HPX,hgt=Math.max((e-s)/60*HPX,16);const all=b.practitioner_id==null?'<span class="ball">ALL</span>':'';return '<div class="blk" style="top:'+top+'px;height:'+hgt+'px" title="Blocked '+b.start_time+'–'+b.end_time+(b.note?' · '+esc(b.note):'')+'">'+b.start_time.slice(0,5)+'–'+b.end_time.slice(0,5)+all+'<button class="bx" onclick="delBlock('+b.id+')" title="Remove block">✕</button>'+(b.note?'<div class="bnote">'+esc(b.note)+'</div>':'')+'</div>'}).join('');
     const laid=layoutLanes(items);
     const blocks=laid.map(a=>{
       const sm=mins(a.start_date), dur=a.duration_min||60;
@@ -583,13 +612,13 @@ function renderDay(){
       const svcName=hgt>=40?'<div class="s">'+esc(a.service||'')+'</div>':'';
       return '<div class="appt" draggable="true" title="'+esc(a.service||'')+' · '+esc(a.full_name)+'" style="'+style+'" ondragstart="dStart(event,'+a.id+')" ondragend="dEnd(event)" onclick="openEdit('+a.id+')"><div class="t">'+a.start_date.slice(11,16)+cbadge(a.loc_abbr)+'</div><div class="n">'+esc(a.full_name)+'</div>'+svcName+'</div>';
     }).join('');
-    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody bookable" style="height:'+COLH()+'px" onmousemove="colHover(event,'+p.id+')" onmouseleave="colHoverOut()" onclick="colClick(event,'+p.id+')">'+whHtml+lines+blocks+'</div></div>';
+    return '<div class="col" data-pid="'+p.id+'" ondragover="dOver(event)" ondragleave="dLeave(event)" ondrop="dDrop(event,'+p.id+')"><div class="colhead" draggable="true" ondragstart="colDragStart(event,'+p.id+')" ondragover="event.preventDefault()" ondrop="colDrop(event,'+p.id+')" title="Drag to reorder">'+avatar(p.photo,p.name)+esc(p.name)+'</div><div class="colbody bookable" style="height:'+COLH()+'px" onmousemove="colHover(event,'+p.id+')" onmouseleave="colHoverOut()" onclick="colClick(event,'+p.id+')">'+whHtml+blkHtml+lines+blocks+'</div></div>';
   }).join('');
   const usedSvc=[...new Set(list.map(a=>a.service_id).filter(Boolean))].map(id=>meta.services.find(s=>String(s.id)===String(id))).filter(Boolean);
   const legend=usedSvc.length?'<div class="legend">'+usedSvc.map(s=>'<span class="lg"><span class="sw" style="background:'+(s.color||'#2e86b0')+'"></span>'+esc(s.title)+'</span>').join('')+'</div>':'';
   const _dg=document.querySelector('.daygrid');const _ps=_dg?_dg.scrollTop:null;
   const dgMaxH=56+VIS_HOURS*HPX+PAD+14;
-  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">⬜ White = working hours, open for booking (set in Practitioners)</span><button class="btn" onclick="openCreate()">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid" style="max-height:'+dgMaxH+'px">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
+  $('#app').innerHTML=shell('<div class="toolbar">'+viewTabs()+'<span style="width:12px"></span><button class="nav-btn" onclick="dy(-1)">←</button><button class="nav-btn" onclick="dyToday()">Today</button><button class="nav-btn" onclick="dy(1)">→</button><span class="range">'+label+'</span>'+locFilterCtrl()+'<span style="flex:1"></span><span style="font-size:.78rem;color:#7a7266;margin-right:6px">⬜ White = working hours, open for booking (set in Practitioners)</span><button class="btn" onclick="openCreate({})">+ New booking</button></div>'+notesBox()+unHtml+legend+'<div class="daygrid" style="max-height:'+dgMaxH+'px">'+(cols.length?gutter+body:'<div style="padding:40px;color:#7a7266">No practitioners at this location.</div>')+'</div>');
   const dg=document.querySelector('.daygrid');if(dg)dg.scrollTop=_ps!=null?_ps:(HPX+PAD);
 }
 function dy(n){dayDate.setDate(dayDate.getDate()+n);loadDayNotes()}
@@ -671,8 +700,27 @@ async function saveEdit(id){const a=appts.find(x=>x.id===id);
   closeM();load();
 }
 async function delBk(id){const a=appts.find(x=>x.id===id);if(!confirm('Delete this booking?'))return;await api('/api/delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ca_id:a.id,appointment_id:a.appointment_id})});closeM();load()}
-function openCreate(pre){pre=pre||{};selCust=null;custResults=[];const d=pre.date||(view==='day'?ymd(dayDate):ymd(new Date()));
-  $('#mbox').innerHTML='<h3>New booking</h3>'+
+function ctoggle(mode){return '<div class="ctoggle"><button class="'+(mode==='booking'?'on':'')+'" onclick="openCreate()">📅 Booking</button><button class="'+(mode==='block'?'on':'')+'" onclick="openBlock()">🚫 Block time</button></div>'}
+function addHm(hm,mins){const [h,m]=(hm||'13:00').split(':').map(Number);let t=Math.max(0,Math.min(h*60+m+mins,24*60-1));return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')}
+function openBlock(pre){if(pre!==undefined)createPre=pre||{};pre=createPre||{};
+  const d=pre.date||(view==='day'?ymd(dayDate):ymd(new Date()));const st=pre.time||'13:00';
+  $('#mbox').innerHTML='<h3>Add to calendar</h3>'+ctoggle('block')+
+    '<p style="color:#7a7266;font-size:.82rem;margin:0 0 12px">A block marks time as <b>unavailable</b> — hidden from online booking and shown as a striped band on the day view.</p>'+
+    '<div class="grid2"><div class="fld"><label>Date</label><input id="b_date" type="date" value="'+d+'"></div><div class="fld"><label>Practitioner</label><select id="b_staff"><option value="">— pick —</option>'+opt(meta.practitioners,'id','name',pre.staff_id||'')+'</select></div></div>'+
+    '<div class="grid2"><div class="fld"><label>From</label><input id="b_start" type="time" value="'+st+'" onchange="if($(\\'#b_end\\'))$(\\'#b_end\\').value=addHm(this.value,60)"></div><div class="fld"><label>To</label><input id="b_end" type="time" value="'+addHm(st,60)+'"></div></div>'+
+    '<div class="fld"><label>Note (why is it blocked?)</label><input id="b_note" placeholder="e.g. Lunch · Meeting · Annual leave"></div>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer;margin:2px 0 4px"><input type="checkbox" id="b_all" style="width:auto;margin:0"> Apply to <b>&nbsp;all practitioners&nbsp;</b> (whole clinic)</label>'+
+    '<div class="modal-actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="createBlock()">🚫 Block this time</button></div>';
+  $('#mbg').classList.add('on');
+}
+async function createBlock(){const all=$('#b_all').checked;const staff=all?null:($('#b_staff').value?+$('#b_staff').value:null);
+  if(!all&&!staff){alert('Pick a practitioner, or tick “all practitioners”.');return}
+  const st=$('#b_start').value,en=$('#b_end').value;if(!st||!en||en<=st){alert('Check the start/end times.');return}
+  await api('/api/block_add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({practitioner_id:staff,date:$('#b_date').value,start:st,end:en,note:$('#b_note').value})});
+  dayDate=new Date($('#b_date').value+'T00:00:00');view='day';closeM();loadDayNotes()}
+async function delBlock(id){if(!confirm('Remove this block? The time becomes bookable again.'))return;await api('/api/block_del',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})});loadDayNotes()}
+function openCreate(pre){if(pre!==undefined)createPre=pre||{};pre=createPre||{};selCust=null;custResults=[];const d=pre.date||(view==='day'?ymd(dayDate):ymd(new Date()));
+  $('#mbox').innerHTML='<h3>Add to calendar</h3>'+ctoggle('booking')+
     '<div class="fld"><label>Customer name</label><div class="csrch"><input id="c_name" placeholder="Type a name — existing customers appear as you type" oninput="custSearch(this.value)" autocomplete="off"><div class="csugg" id="c_sugg" style="display:none"></div></div></div>'+
     '<div id="c_pickwrap"></div>'+
     '<div class="grid2"><div class="fld"><label>Phone</label><input id="c_phone"></div><div class="fld"><label>Email</label><input id="c_email"></div></div>'+
