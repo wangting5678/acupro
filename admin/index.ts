@@ -134,6 +134,27 @@ export default {
       return json({ customers: results });
     }
 
+    // full customer list (Customers section) — every customer + how many appointments they have
+    if (url.pathname === "/api/customer_list" && req.method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT c.id, c.full_name, c.email, c.phone, c.notes, c.created_at,
+                COUNT(ca.id) AS appt_count, MAX(a.start_date) AS last_visit
+         FROM customers c
+         LEFT JOIN customer_appointments ca ON ca.customer_id = c.id
+         LEFT JOIN appointments a ON a.id = ca.appointment_id
+         GROUP BY c.id ORDER BY c.full_name COLLATE NOCASE LIMIT 8000`,
+      ).all();
+      return json({ customers: results });
+    }
+    // edit a customer's details (Customers section)
+    if (url.pathname === "/api/customer_save" && req.method === "POST") {
+      const { id, full_name, phone, email, notes } = (await req.json()) as any;
+      if (!id) return json({ error: "missing id" }, 400);
+      await env.DB.prepare("UPDATE customers SET full_name=?, phone=?, email=?, notes=? WHERE id=?")
+        .bind((full_name || "").trim(), (phone || "").trim(), (email || "").trim(), (notes || "").trim(), id).run();
+      return json({ ok: true });
+    }
+
     // drag-drop: reassign practitioner
     if (url.pathname === "/api/assign" && req.method === "POST") {
       const { appointment_id, staff_id } = (await req.json()) as any;
@@ -347,6 +368,23 @@ const PAGE = `<!doctype html><html lang="en"><head>
   header{background:var(--pine);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
   header h1{font-size:1.05rem;margin:0}
   header button{background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px 14px;border-radius:8px;font-size:.85rem;cursor:pointer}
+  .navbar{display:flex;gap:8px;flex-wrap:wrap}
+  /* nav pills use the two logo blues: translucent default → light duck-egg on hover / when active (no white) */
+  header .navpill{background:rgba(255,255,255,.14);color:#fff;font-weight:600;transition:background .15s,color .15s}
+  header .navpill:hover{background:#bcdcea;color:#0f3d6e}
+  header .navpill.on{background:#bcdcea;color:#0f3d6e}
+  /* directory tables (Appointments / Customers) */
+  .listsearch{max-width:420px;margin:0 0 14px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;background:#fff}
+  .listbox{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .dtable{width:100%;border-collapse:collapse;font-size:.9rem}
+  .dtable th{text-align:left;font-size:.7rem;font-weight:700;color:#8a8172;text-transform:uppercase;letter-spacing:.04em;padding:11px 14px;border-bottom:2px solid var(--line);background:#f5f8fb;position:sticky;top:0}
+  .dtable td{padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .dtable tbody tr{transition:background .12s}
+  .dtable tbody tr:hover{background:#eaf3fa}
+  .dtable tr:last-child td{border-bottom:0}
+  .pill{font-size:.7rem;font-weight:700;padding:2px 9px;border-radius:999px}
+  .pill-past{background:#e7edf3;color:#5a636d}
+  .pill-up{background:#dcecf7;color:#14508f}
   .wrap{max-width:100%;margin:0 auto;padding:16px}
   .login{max-width:340px;margin:12vh auto;background:#fff;padding:28px;border-radius:16px;box-shadow:0 12px 40px -20px rgba(0,0,0,.3)}
   .login h1{font-size:1.3rem;margin:0 0 4px;color:var(--pine)}.login p{color:#777;font-size:.9rem;margin:0 0 18px}
@@ -532,9 +570,9 @@ async function doLogin(){const {ok,data}=await api('/api/login',{method:'POST',h
 async function boot(){const m=await api('/api/meta');if(!m.ok)return loginView('');meta=m.data;await load()}
 async function load(){const a=await api('/api/appointments');if(!a.ok)return loginView('');appts=a.data.appointments||[];const h=await api('/api/hours');hours=h.ok?(h.data.hours||[]):[];render()}
 
-function navbtn(p,label){const fn=p==='roster'?'goRoster':p==='services'?'goServices':'goBookings';return '<button style="background:'+(page===p?'#fff':'rgba(255,255,255,.15)')+';color:'+(page===p?'#14508f':'#fff')+';font-weight:600" onclick="'+fn+'()">'+label+'</button>'}
-function shell(inner){return '<header><h1>📅 AcuPro</h1><div style="display:flex;gap:8px">'+navbtn('bookings','Bookings')+navbtn('roster','Practitioners')+navbtn('services','Services')+'</div><button onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
-function render(){if(page==='roster')return renderRoster();if(page==='services')return renderServices();if(view==='month')return renderMonth();view==='day'?renderDay():renderWeek()}
+function navbtn(p,label){const map={roster:'goRoster',services:'goServices',appointments:'goAppointments',customers:'goCustomers'};const fn=map[p]||'goBookings';return '<button class="navpill'+(page===p?' on':'')+'" onclick="'+fn+'()">'+label+'</button>'}
+function shell(inner){return '<header><h1>📅 AcuPro</h1><div class="navbar">'+navbtn('bookings','Calendar')+navbtn('roster','Practitioners')+navbtn('services','Services')+navbtn('appointments','Appointments')+navbtn('customers','Customers')+'</div><button class="navpill" onclick="logout()">Sign out</button></header><div class="wrap">'+inner+'</div>'+modalHtml()}
+function render(){if(page==='roster')return renderRoster();if(page==='services')return renderServices();if(page==='appointments')return renderAppointments();if(page==='customers')return renderCustomers();if(view==='month')return renderMonth();view==='day'?renderDay():renderWeek()}
 function viewTabs(){return '<button class="nav-btn'+(view==='week'?' on':'')+'" onclick="toWeek()">Week</button><button class="nav-btn'+(view==='day'?' on':'')+'" onclick="toDayView()">Day</button><button class="nav-btn'+(view==='month'?' on':'')+'" onclick="toMonth()">Month</button>'}
 function toMonth(){view='month';monthCursor=new Date();render()}
 function mo(n){monthCursor=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+n,1);render()}
@@ -553,6 +591,56 @@ function renderMonth(){
 function goBookings(){page='bookings';render()}
 function goRoster(){page='roster';loadPrac()}
 function goServices(){page='services';loadServices()}
+function goAppointments(){page='appointments';apptQ='';if(!appts.length){load();}else{renderAppointments();}}
+function goCustomers(){page='customers';custQ='';loadCustomers()}
+
+// ---- Appointments (history) ----
+let apptQ='';
+function setApptQ(v){apptQ=v;renderAppointments()}
+function renderAppointments(){
+  const q=apptQ.trim().toLowerCase();
+  const rows=appts.slice().sort((a,b)=>(b.start_date||'').localeCompare(a.start_date||''))
+    .filter(a=>!q||((a.full_name||'')+' '+(a.email||'')+' '+(a.phone||'')+' '+(a.service||'')+' '+(a.practitioner||'')).toLowerCase().includes(q));
+  const now=ymd(new Date())+' '+new Date().toTimeString().slice(0,5);
+  const body=rows.map(a=>{const past=(a.start_date||'')<now;const d=a.start_date||'';
+    return '<tr onclick="openEdit('+a.id+')" style="cursor:pointer">'+
+      '<td><b>'+esc(d.slice(0,10))+'</b> <span style="color:#7a7266">'+esc(d.slice(11,16))+'</span></td>'+
+      '<td>'+esc(a.full_name||'')+'</td>'+
+      '<td>'+esc(a.service||'—')+'</td>'+
+      '<td>'+esc(a.practitioner||'Unassigned')+'</td>'+
+      '<td>'+cbadge(a.loc_abbr)+' '+esc(a.location||'')+'</td>'+
+      '<td><span class="pill '+(past?'pill-past':'pill-up')+'">'+(past?'Past':'Upcoming')+'</span></td></tr>';
+  }).join('')||'<tr><td colspan="6" style="padding:26px;color:#7a7266;text-align:center">No appointments'+(q?' match “'+esc(apptQ)+'”':' yet')+'.</td></tr>';
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 4px;font-size:1.25rem">Appointments</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 14px">Every appointment on record — most recent first. Click a row to view or edit it. Showing <b>'+rows.length+'</b> of '+appts.length+'.</p><input class="listsearch" placeholder="🔍 Search by customer, service, practitioner…" value="'+esc(apptQ)+'" oninput="setApptQ(this.value)"><div class="listbox"><table class="dtable"><thead><tr><th>Date &amp; time</th><th>Customer</th><th>Service</th><th>Practitioner</th><th>Clinic</th><th>Status</th></tr></thead><tbody>'+body+'</tbody></table></div>');
+}
+
+// ---- Customers (directory + edit) ----
+let custList=[],custQ='';
+async function loadCustomers(){const {ok,data}=await api('/api/customer_list');if(!ok)return loginView('');custList=data.customers||[];renderCustomers()}
+function setCustQ(v){custQ=v;renderCustomers()}
+function renderCustomers(){
+  const q=custQ.trim().toLowerCase();
+  const rows=custList.filter(c=>!q||((c.full_name||'')+' '+(c.email||'')+' '+(c.phone||'')).toLowerCase().includes(q));
+  const body=rows.map(c=>'<tr onclick="openCustomer('+c.id+')" style="cursor:pointer">'+
+    '<td><b>'+esc(c.full_name||'—')+'</b></td>'+
+    '<td>'+esc(c.email||'')+'</td>'+
+    '<td>'+esc(c.phone||'')+'</td>'+
+    '<td style="text-align:center">'+(c.appt_count||0)+'</td>'+
+    '<td>'+esc((c.last_visit||'').slice(0,10))+'</td>'+
+    '<td style="text-align:right"><button class="btn ghost" onclick="event.stopPropagation();openCustomer('+c.id+')">Edit</button></td></tr>').join('')
+    ||'<tr><td colspan="6" style="padding:26px;color:#7a7266;text-align:center">No customers'+(q?' match “'+esc(custQ)+'”':' yet')+'.</td></tr>';
+  $('#app').innerHTML=shell('<h2 style="margin:4px 0 4px;font-size:1.25rem">Customers</h2><p style="color:#7a7266;font-size:.85rem;margin:0 0 14px">Everyone in the database. Search, then click a row to edit their details. Showing <b>'+rows.length+'</b> of '+custList.length+'.</p><input class="listsearch" placeholder="🔍 Search by name, email or phone…" value="'+esc(custQ)+'" oninput="setCustQ(this.value)"><div class="listbox"><table class="dtable"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th style="text-align:center">Visits</th><th>Last visit</th><th></th></tr></thead><tbody>'+body+'</tbody></table></div>');
+}
+function openCustomer(id){const c=custList.find(x=>x.id===id);if(!c)return;
+  $('#mbox').innerHTML='<h3>Edit customer</h3>'+
+    '<div class="fld"><label>Full name</label><input id="cu_name" value="'+esc(c.full_name)+'"></div>'+
+    '<div class="grid2"><div class="fld"><label>Phone</label><input id="cu_phone" value="'+esc(c.phone)+'"></div><div class="fld"><label>Email</label><input id="cu_email" value="'+esc(c.email)+'"></div></div>'+
+    '<div class="fld"><label>Notes</label><textarea id="cu_notes" rows="3">'+esc(c.notes)+'</textarea></div>'+
+    '<p style="color:#7a7266;font-size:.78rem;margin:0 0 10px">'+(c.appt_count||0)+' appointment(s) on record'+(c.last_visit?' · last visit '+esc((c.last_visit||'').slice(0,10)):'')+'. Email is the patient’s identity — changing it makes future bookings count as a new person.</p>'+
+    '<div class="modal-actions" style="justify-content:flex-end"><button class="btn ghost" onclick="closeM()">Close</button><button class="btn" onclick="saveCustomer('+c.id+')">Save</button></div>';
+  $('#mbg').classList.add('on');
+}
+async function saveCustomer(id){await api('/api/customer_save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,full_name:$('#cu_name').value,phone:$('#cu_phone').value,email:$('#cu_email').value,notes:$('#cu_notes').value})});closeM();loadCustomers()}
 
 function renderWeek(){
   const days=[...Array(7)].map((_,i)=>{const d=new Date(cursor);d.setDate(d.getDate()+i);return d});
