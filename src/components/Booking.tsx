@@ -159,6 +159,20 @@ export default function Booking() {
       });
       const data = (await res.json()) as any;
       if (!res.ok) throw new Error(data.error || "Booking failed");
+      // Conversion signal for GTM / Google Ads / GA4 — the marketing agency hooks
+      // the "booking_confirmed" event in GTM (container GTM-WC78T4W) to fire the
+      // Google Ads (AW-834082397) + GA4 conversions.
+      try {
+        (window as any).dataLayer = (window as any).dataLayer || [];
+        (window as any).dataLayer.push({
+          event: "booking_confirmed",
+          booking_service: service.title,
+          booking_service_id: service.id,
+          booking_location_id: locationId,
+          value: service.price || 0,
+          currency: currency,
+        });
+      } catch { /* tracking must never break the booking */ }
       setDone(true);
     } catch (err: any) {
       setError(err?.message ?? "Something went wrong");
