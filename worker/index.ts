@@ -67,9 +67,47 @@ function doctorEmailHtml(o: { name: string; service: string; note: string; date:
   </div>`;
 }
 
+// ---- Legacy WordPress URL → new-site 301 map (see REDIRECTS.md / REDIRECTS.en.md) ----
+// Only OLD paths that differ live here. Paths shared 1:1 (e.g. /conditions/<slug>, /pricing,
+// /our-team, /) are absent on purpose so they serve normally.
+const REDIRECT_EXACT: Record<string, string> = {
+  "/about": "/", "/about/research": "/",
+  "/clinics": "/#clinics", "/clinics/london-clinic": "/#clinics", "/clinics/vct": "/#clinics",
+  "/clinics/video-consultation": "/book/",
+  "/contact": "/#clinics",
+  "/online-booking": "/book/", "/online-service": "/book/", "/conditions/online-service": "/book/",
+  "/free-15-min-enquiry": "/book/", "/initial-assessment": "/book/", "/follow-up-consultation": "/book/",
+  "/womens-health": "/conditions/", "/general-wellbeing": "/conditions/",
+  "/acupuncture-london": "/pricing/", "/acupuncture-in-westminster": "/pricing/", "/acupuncture-pain": "/pricing/",
+  "/herbal-medicines": "/pricing/",
+  "/thank-you": "/", "/shop": "/", "/basket": "/", "/checkout": "/", "/my-account": "/",
+};
+// prefix → target, for everything UNDER the prefix (never the prefix root itself)
+const REDIRECT_PREFIX: [string, string][] = [
+  ["/our-team/", "/our-team/"],
+  ["/acupuncture/", "/pricing/"], ["/herbal-medicine/", "/pricing/"], ["/herbal-medicines/", "/pricing/"],
+  ["/massage/", "/pricing/"], ["/aesthetic/", "/pricing/"], ["/wellbeing/", "/pricing/"],
+  ["/product/", "/"], ["/product-category/", "/"],
+];
+function redirectTarget(pathname: string): string | null {
+  const p = pathname.replace(/\/+$/, "") || "/"; // normalise trailing slash
+  if (REDIRECT_EXACT[p]) return REDIRECT_EXACT[p];
+  if (p.startsWith("/the-best-acupuncture-clinic-near")) return "/"; // ~18 local-SEO landing pages
+  for (const [pre, target] of REDIRECT_PREFIX) {
+    if (pathname.startsWith(pre) && pathname !== pre && p !== pre.replace(/\/+$/, "")) return target;
+  }
+  return null;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    // 301 legacy WordPress URLs to their new-site equivalents (UK site only; GET/HEAD only).
+    if (env.SITE_CURRENCY !== "AED" && (request.method === "GET" || request.method === "HEAD")) {
+      const to = redirectTarget(url.pathname);
+      if (to) return Response.redirect(new URL(to, url.origin).toString(), 301);
+    }
 
     // Site config for the frontend (currency, region, languages offered).
     if (url.pathname === "/api/site" && request.method === "GET") {
