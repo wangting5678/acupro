@@ -34,7 +34,11 @@ const args = process.argv.slice(2);
 const dir = (args[args.indexOf("--dir") + 1]) || "./export";
 const WIPE = args.includes("--wipe"); // 先清掉 D1 里现有(测试)数据
 
-// ---- TSV 解析（mysql --batch：制表符分隔，NULL = \N，首行是列名）----
+// ---- TSV 解析（mysql/mariadb --batch：制表符分隔，NULL = \N，首行列名；
+//      数据里的换行/制表符/反斜杠被转义成 \n \t \\，需还原）----
+function unesc(s) {
+  return s.replace(/\\([0ntr\\])/g, (_, c) => (c === "0" ? "\0" : c === "n" ? "\n" : c === "t" ? "\t" : c === "r" ? "\r" : "\\"));
+}
 function readTsv(file) {
   const raw = fs.readFileSync(path.join(dir, file), "utf8");
   const lines = raw.split("\n").filter((l) => l.length);
@@ -42,7 +46,8 @@ function readTsv(file) {
   return lines.slice(1).map((line) => {
     const cells = line.split("\t");
     const o = {};
-    cols.forEach((c, i) => { o[c] = cells[i] === "\\N" || cells[i] === undefined ? null : cells[i]; });
+    // mariadb --batch 把 NULL 导成字面 "NULL"（本数据里 空串='' 与 NULL 有区分）；也兼容 mysql 的 \N
+    cols.forEach((c, i) => { o[c] = cells[i] === "NULL" || cells[i] === "\\N" || cells[i] === undefined ? null : unesc(cells[i]); });
     return o;
   });
 }
