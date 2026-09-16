@@ -1,0 +1,34 @@
+---
+import Base from "../layouts/Base.astro";
+import { getSeo } from "../seo";
+const seo = getSeo("/privacy", "Privacy & Cookies",
+  "How AcuPro Clinic uses cookies and handles the information you share when booking.");
+---
+
+<Base title={seo.title} description={seo.description} canonicalPath="/privacy">
+  <section class="section">
+    <div class="container" style="max-width:760px">
+      <div class="eyebrow">Privacy</div>
+      <h1>Privacy &amp; Cookies</h1>
+      <p class="muted" style="margin-bottom:28px">Last updated: 2026. This is a plain-English summary — AcuPro Clinic should have its full policy reviewed for UK GDPR / PECR compliance before go-live.</p>
+
+      <h3>Information we collect</h3>
+      <p>When you book or enquire, we collect the details you enter — your name, email, phone number and any notes — so the clinic can arrange and confirm your appointment. We do not sell your information.</p>
+
+      <h3>Cookies &amp; tracking</h3>
+      <p>With your consent, we use analytics and marketing cookies to understand how the site is used and to measure our advertising. These are loaded through Google Tag Manager and include:</p>
+      <ul style="color:var(--ink-soft);line-height:1.9">
+        <li><strong>Google Analytics 4</strong> — anonymous usage statistics</li>
+        <li><strong>Google Ads</strong> — measuring the results of our search advertising</li>
+        <li><strong>Meta (Facebook) Pixel</strong> — measuring social advertising</li>
+      </ul>
+      <p>Essential cookies needed for the site to work are always on. Analytics and marketing cookies only load <strong>after you click “Accept”</strong> on the cookie banner. You can change your choice at any time by clearing this site’s cookies in your browser, or through your browser’s privacy settings.</p>
+
+      <h3>Your choices</h3>
+      <p>You can decline non-essential cookies and still use the site and book normally. To ask what data we hold about you, or to have it corrected or deleted, contact the clinic and we’ll help.</p>
+
+      <h3>Contact</h3>
+      <p>Questions about your data or this page? Email <a href="mailto:bookings@acuproclinic.uk" style="color:var(--pine);font-weight:600">bookings@acuproclinic.uk</a>.</p>
+    </div>
+  </section>
+</Base>

@@ -32,6 +32,13 @@ const localBusiness = {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Consent Mode v2 default (GDPR/PECR): deny tracking until the visitor accepts. Must run BEFORE GTM. -->
+    <script is:inline>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      (function(){var c;try{c=localStorage.getItem('acupro_consent');}catch(e){}var ok=c==='granted';
+        gtag('consent','default',{ad_storage:ok?'granted':'denied',analytics_storage:ok?'granted':'denied',ad_user_data:ok?'granted':'denied',ad_personalization:ok?'granted':'denied',wait_for_update:500});})();
+    </script>
     <!-- Google Tag Manager (container GTM-WC78T4W — GA4 + Google Ads AW-834082397 + Meta Pixel live inside it, managed by the marketing agency) -->
     <script is:inline>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-WC78T4W');</script>
     <!-- End Google Tag Manager -->
@@ -101,6 +108,28 @@ const localBusiness = {
         </div>
       </div>
     </footer>
+
+    <!-- Cookie consent (Consent Mode v2) -->
+    <div id="cookie-banner" class="cookie-banner" hidden>
+      <p class="cookie-text">We use cookies for analytics and marketing to improve your experience. You can accept or decline. See our <a href="/privacy/">Privacy Policy</a>.</p>
+      <div class="cookie-actions">
+        <button type="button" id="cookie-decline" class="btn btn-ghost">Decline</button>
+        <button type="button" id="cookie-accept" class="btn btn-primary">Accept</button>
+      </div>
+    </div>
+    <script is:inline>
+      (function(){
+        var KEY='acupro_consent', b=document.getElementById('cookie-banner');
+        function stored(){try{return localStorage.getItem(KEY);}catch(e){return null;}}
+        function save(v){try{localStorage.setItem(KEY,v);}catch(e){}}
+        function apply(v){if(typeof gtag==='function')gtag('consent','update',{ad_storage:v,analytics_storage:v,ad_user_data:v,ad_personalization:v});}
+        if(!stored()){ if(b) b.hidden=false; }
+        function choose(v){save(v);apply(v);if(b)b.hidden=true;}
+        var a=document.getElementById('cookie-accept'), d=document.getElementById('cookie-decline');
+        if(a)a.addEventListener('click',function(){choose('granted');});
+        if(d)d.addEventListener('click',function(){choose('denied');});
+      })();
+    </script>
     <script src="/enhance.js" defer is:inline></script>
   </body>
 </html>
