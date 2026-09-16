@@ -62,6 +62,10 @@
 
 **为什么能直接搬**：新 D1 的表是**照着 Bookly 结构建的**，`location_id`(3/11/4) 和 `service_id` 直接复用 → 姓名/电话/邮箱/日期/服务/诊所是**字段直映射**。规模约 **5,516 客户 + 25,373 预约**。唯一模糊的是 Bookly 的 `staff_id` → 新 `practitioner id`，对不上的先落"未分配"，事后在后台拖。
 
+**⚠️ 库大小澄清**：整个 WordPress 库 dump 有 **299MB**，但那含帖子/WooCommerce/日志，**不迁**。真正要迁的 3 张表（customers + appointments + customer_appointments）**加起来只 ~10MB** → 走一下 Mac 也就几秒，**不需要特殊"直迁"管道**；真要洁癖，切换当天只单独导这 3 张表即可，不碰整库。
+
+**现成脚本**：`scripts/migrate-bookly-to-d1.mjs`（已写好）。它只读 TSV 导出、只输出 D1 SQL，**不连线上库**。用法见脚本头部注释：导出 3 张表 → `node ... --dir ./export --wipe > d1-import.sql` → `wrangler d1 execute acupro-booking --remote --file d1-import.sql`。内置按邮箱去重、staff_id 映射（`STAFF_MAP` 切换当天填）、自动补 `cancel_token`。**先用 7 周前的本地副本 `acupro-wp-uk/acupro_db.sql` 跑一遍验证再上真数据。**
+
 **D.1（提前做，不影响线上）先在本地副本上写好并测通转换脚本**
 - 用 Docker 里的 `acupro-mysql` 当练习场，写导出+转换脚本：Bookly 表 → D1 的三张表的 SQL/JSON。
 - 建一张 `staff_id → practitioner_id` 映射表；映射不到的 `staff_id` 一律写 `NULL`(未分配)。
