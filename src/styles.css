@@ -219,21 +219,6 @@ img { max-width: 100%; display: block; }
 [dir="rtl"] body { text-align: right; }
 [dir="rtl"] .nav-cta { flex-direction: row-reverse; }
 
-/* Cookie consent banner */
-.cookie-banner {
-  position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 9998;
-  max-width: 720px; margin: 0 auto;
-  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  background: #fff; border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: 0 18px 45px -18px rgba(20,80,143,0.4);
-  padding: 16px 20px;
-}
-.cookie-banner .cookie-text { margin: 0; flex: 1 1 300px; font-size: 0.9rem; color: var(--ink-soft); }
-.cookie-banner .cookie-text a { color: var(--pine); font-weight: 600; text-decoration: underline; }
-.cookie-banner .cookie-actions { display: flex; gap: 10px; flex-shrink: 0; }
-.cookie-banner .btn { padding: 10px 20px; }
-@media (max-width: 560px) { .cookie-banner .cookie-actions { width: 100%; } .cookie-banner .cookie-actions .btn { flex: 1; } }
-
 /* Header logo + hero video */
 .brand-logo { height: 40px; width: auto; display: block; }
 .hero-video { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); background: #000; }
